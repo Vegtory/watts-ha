@@ -3,8 +3,10 @@ from __future__ import annotations
 
 from typing import Any
 
-WATTS_TEMPERATURE_FACTOR = 32.0
-WATTS_TEMPERATURE_SENTINELS = {2124.0}
+# Watts Vision values are fixed-point Fahrenheit with one decimal place.
+# Example: 698 == 69.8F == 21.0C.
+WATTS_TEMPERATURE_FACTOR = 10.0
+WATTS_INVALID_FAHRENHEIT_THRESHOLD = 99.0
 
 MODE_LABELS: dict[str, str] = {
     "0": "Comfort",
@@ -34,9 +36,15 @@ def _to_float(value: Any) -> float | None:
 def decode_temperature(value: Any) -> float | None:
     """Decode raw temperature values returned by Watts API."""
     raw_value = _to_float(value)
-    if raw_value is None or raw_value in WATTS_TEMPERATURE_SENTINELS:
+    if raw_value is None:
         return None
-    return round(raw_value / WATTS_TEMPERATURE_FACTOR, 1)
+
+    fahrenheit_value = raw_value / WATTS_TEMPERATURE_FACTOR
+    if fahrenheit_value > WATTS_INVALID_FAHRENHEIT_THRESHOLD:
+        return None
+
+    celsius_value = (fahrenheit_value - 32.0) / 1.8
+    return round(celsius_value, 1)
 
 
 def decode_setpoint(value: Any) -> float | None:
@@ -44,12 +52,19 @@ def decode_setpoint(value: Any) -> float | None:
     raw_value = _to_float(value)
     if raw_value is None:
         return None
-    return round(raw_value / WATTS_TEMPERATURE_FACTOR, 1)
+
+    fahrenheit_value = raw_value / WATTS_TEMPERATURE_FACTOR
+    if fahrenheit_value > WATTS_INVALID_FAHRENHEIT_THRESHOLD:
+        return None
+
+    celsius_value = (fahrenheit_value - 32.0) / 1.8
+    return round(celsius_value, 1)
 
 
 def encode_setpoint(value: float) -> str:
     """Encode a Home Assistant setpoint back to Watts API format."""
-    return str(int(round(value * WATTS_TEMPERATURE_FACTOR)))
+    fahrenheit_value = (float(value) * 1.8) + 32.0
+    return str(int(round(fahrenheit_value * WATTS_TEMPERATURE_FACTOR)))
 
 
 def format_mode(value: Any) -> str | None:

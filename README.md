@@ -80,7 +80,7 @@ For each heating device/zone:
 - **Thermostat** - Main control entity with:
   - HVAC modes (`off`, `heat`, `auto`)
   - Target temperature
-  - Preset modes (comfort, eco, boost, frost protection, auto variants)
+  - Preset modes (`comfort`, `eco`)
   - HVAC action (heating/idle/off)
 
 #### Sensors

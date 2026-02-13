@@ -10,18 +10,18 @@ from custom_components.watts_smarthome.formatting import (
 
 
 def test_decode_temperature() -> None:
-    """Temperatures are raw fixed-point values and include sentinel values."""
-    assert decode_temperature("624") == 19.5
-    assert decode_temperature(692) == 21.6
+    """Temperatures are fixed-point Fahrenheit and include sentinel values."""
+    assert decode_temperature("624") == 16.9
+    assert decode_temperature(692) == 20.7
     assert decode_temperature("2124") is None
     assert decode_temperature(None) is None
 
 
 def test_decode_and_encode_setpoint() -> None:
     """Setpoints should round-trip between HA and API formats."""
-    assert decode_setpoint("590") == 18.4
-    assert encode_setpoint(19.5) == "624"
-    assert encode_setpoint(21.8) == "698"
+    assert decode_setpoint("590") == 15.0
+    assert encode_setpoint(19.5) == "671"
+    assert encode_setpoint(21.0) == "698"
 
 
 def test_mode_mapping() -> None:

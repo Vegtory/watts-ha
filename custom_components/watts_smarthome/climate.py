@@ -5,7 +5,6 @@ import logging
 from typing import Any
 
 from homeassistant.components.climate import (
-    PRESET_BOOST,
     PRESET_COMFORT,
     PRESET_ECO,
     ClimateEntity,
@@ -26,41 +25,41 @@ from .formatting import decode_setpoint, decode_temperature, device_label, encod
 
 _LOGGER = logging.getLogger(__name__)
 
-PRESET_FROST = "frost_protection"
-PRESET_AUTO = "auto"
-PRESET_AUTO_COMFORT = "auto_comfort"
-PRESET_AUTO_ECO = "auto_eco"
-PRESET_ON = "on"
+# Mode values confirmed from documented third-party protocol implementations.
+MODE_COMFORT = "0"
+MODE_OFF = "1"
+MODE_ECO = "3"
+MODE_AUTO = "8"
 
-PRESET_TO_MODE_CODE: dict[str, str] = {
-    PRESET_COMFORT: "0",
-    PRESET_FROST: "2",
-    PRESET_ECO: "3",
-    PRESET_BOOST: "4",
-    PRESET_AUTO_COMFORT: "8",
-    PRESET_AUTO_ECO: "11",
-    PRESET_ON: "12",
-    PRESET_AUTO: "13",
-}
-MODE_CODE_TO_PRESET: dict[str, str] = {
-    mode_code: preset for preset, mode_code in PRESET_TO_MODE_CODE.items()
-}
-AUTO_MODE_CODES = {"8", "11", "13"}
-OFF_MODE_CODES = {"1", "14"}
+OFF_MODE_CODES = {MODE_OFF, "14"}
+AUTO_MODE_CODES = {MODE_AUTO, "11", "13"}
+ECO_MODE_CODES = {MODE_ECO}
+COMFORT_MODE_CODES = {MODE_COMFORT, "12"}
 
-MODE_CODE_TO_SETPOINT_FIELD: dict[str, str] = {
-    "0": "consigne_confort",  # comfort
-    "2": "consigne_hg",  # frost protection
-    "3": "consigne_eco",  # eco
-    "4": "consigne_boost",  # boost
-    "8": "consigne_confort",  # auto comfort
-    "11": "consigne_eco",  # auto eco
-}
+
+def normalize_mode_code(mode_code: str) -> str:
+    """Normalize raw gv_mode/nv_mode into the canonical control set."""
+    if mode_code in OFF_MODE_CODES:
+        return MODE_OFF
+    if mode_code in AUTO_MODE_CODES:
+        return MODE_AUTO
+    if mode_code in ECO_MODE_CODES:
+        return MODE_ECO
+    if mode_code in COMFORT_MODE_CODES:
+        return MODE_COMFORT
+    return mode_code
 
 
 def target_field_for_mode(mode_code: str) -> str:
-    """Return the best setpoint field for a given mode code."""
-    return MODE_CODE_TO_SETPOINT_FIELD.get(mode_code, "consigne_manuel")
+    """Return the active setpoint field for a given mode code."""
+    normalized_mode = normalize_mode_code(mode_code)
+    if normalized_mode == MODE_ECO:
+        return "consigne_eco"
+    if normalized_mode == "2":
+        return "consigne_hg"
+    if normalized_mode == "4":
+        return "consigne_boost"
+    return "consigne_confort"
 
 
 async def async_setup_entry(
@@ -106,7 +105,7 @@ class WattsDeviceClimate(CoordinatorEntity[WattsCoordinator], ClimateEntity):
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
     _attr_target_temperature_step = 0.1
     _attr_hvac_modes = [HVACMode.OFF, HVACMode.HEAT, HVACMode.AUTO]
-    _attr_preset_modes = list(PRESET_TO_MODE_CODE.keys())
+    _attr_preset_modes = [PRESET_COMFORT, PRESET_ECO]
     _attr_supported_features = (
         ClimateEntityFeature.TARGET_TEMPERATURE
         | ClimateEntityFeature.PRESET_MODE
@@ -187,10 +186,10 @@ class WattsDeviceClimate(CoordinatorEntity[WattsCoordinator], ClimateEntity):
     def hvac_mode(self) -> HVACMode:
         """Return current HVAC mode."""
         device_data = self._device_data() or {}
-        mode_code = str(device_data.get("gv_mode", "0"))
-        if mode_code in OFF_MODE_CODES:
+        mode_code = normalize_mode_code(str(device_data.get("gv_mode", MODE_COMFORT)))
+        if mode_code == MODE_OFF:
             return HVACMode.OFF
-        if mode_code in AUTO_MODE_CODES:
+        if mode_code == MODE_AUTO:
             return HVACMode.AUTO
         return HVACMode.HEAT
 
@@ -211,8 +210,12 @@ class WattsDeviceClimate(CoordinatorEntity[WattsCoordinator], ClimateEntity):
         device_data = self._device_data()
         if not device_data:
             return None
-        mode_code = str(device_data.get("gv_mode", ""))
-        return MODE_CODE_TO_PRESET.get(mode_code)
+        mode_code = normalize_mode_code(str(device_data.get("gv_mode", "")))
+        if mode_code == MODE_ECO:
+            return PRESET_ECO
+        if mode_code == MODE_COMFORT:
+            return PRESET_COMFORT
+        return None
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -233,11 +236,23 @@ class WattsDeviceClimate(CoordinatorEntity[WattsCoordinator], ClimateEntity):
                 **query_data,
                 "query[id_device]": self._device_id,
                 "query[id]": self._device_query_id,
-                "context": "device",
+                "peremption": "15000",
+                "context": "1",
             },
             lang=DEFAULT_LANG,
         )
         await self.coordinator.async_request_refresh()
+
+    def _build_mode_setpoint_payload(self, mode_code: str, temperature: float) -> dict[str, Any]:
+        """Build a protocol-compatible mode/setpoint payload."""
+        encoded_setpoint = encode_setpoint(temperature)
+        return {
+            "query[time_boost]": "0",
+            "query[consigne_confort]": encoded_setpoint,
+            "query[consigne_manuel]": encoded_setpoint,
+            "query[gv_mode]": mode_code,
+            "query[nv_mode]": mode_code,
+        }
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
         """Set a new target temperature."""
@@ -245,44 +260,66 @@ class WattsDeviceClimate(CoordinatorEntity[WattsCoordinator], ClimateEntity):
         if temperature is None:
             return
         try:
-            mode_code = str((self._device_data() or {}).get("gv_mode", ""))
-            target_field = target_field_for_mode(mode_code)
+            current_mode = normalize_mode_code(
+                str((self._device_data() or {}).get("gv_mode", MODE_COMFORT))
+            )
             await self._async_push_device_query(
-                {f"query[{target_field}]": encode_setpoint(float(temperature))}
+                self._build_mode_setpoint_payload(current_mode, float(temperature))
             )
         except (TypeError, ValueError, WattsApiError) as err:
             _LOGGER.error("Failed to set temperature for device %s: %s", self._device_id, err)
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         """Set HVAC mode."""
-        current_mode_code = str((self._device_data() or {}).get("gv_mode", "0"))
+        current_mode_code = normalize_mode_code(
+            str((self._device_data() or {}).get("gv_mode", MODE_COMFORT))
+        )
+        current_target = self.target_temperature
+        if current_target is None:
+            current_target = decode_setpoint(
+                (self._device_data() or {}).get("consigne_confort")
+            ) or 20.0
 
         if hvac_mode == HVACMode.OFF:
-            mode_code = "1"
+            mode_code = MODE_OFF
         elif hvac_mode == HVACMode.AUTO:
-            mode_code = current_mode_code if current_mode_code in AUTO_MODE_CODES else "13"
+            mode_code = MODE_AUTO
         elif hvac_mode == HVACMode.HEAT:
-            if current_mode_code in OFF_MODE_CODES or current_mode_code in AUTO_MODE_CODES:
-                mode_code = "0"
+            if current_mode_code == MODE_ECO:
+                mode_code = MODE_ECO
             else:
-                mode_code = current_mode_code
+                mode_code = MODE_COMFORT
         else:
             _LOGGER.error("Unsupported HVAC mode for device %s: %s", self._device_id, hvac_mode)
             return
 
         try:
-            await self._async_push_device_query({"query[gv_mode]": mode_code})
+            await self._async_push_device_query(
+                self._build_mode_setpoint_payload(mode_code, float(current_target))
+            )
         except WattsApiError as err:
             _LOGGER.error("Failed to set HVAC mode for device %s: %s", self._device_id, err)
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
         """Set preset mode."""
-        mode_code = PRESET_TO_MODE_CODE.get(preset_mode)
-        if mode_code is None:
+        current_target = self.target_temperature
+        if current_target is None:
+            current_target = decode_setpoint(
+                (self._device_data() or {}).get("consigne_confort")
+            ) or 20.0
+
+        if preset_mode == PRESET_COMFORT:
+            mode_code = MODE_COMFORT
+        elif preset_mode == PRESET_ECO:
+            mode_code = MODE_ECO
+        else:
             _LOGGER.error("Unsupported preset mode for device %s: %s", self._device_id, preset_mode)
             return
+
         try:
-            await self._async_push_device_query({"query[gv_mode]": mode_code})
+            await self._async_push_device_query(
+                self._build_mode_setpoint_payload(mode_code, float(current_target))
+            )
         except WattsApiError as err:
             _LOGGER.error("Failed to set preset mode for device %s: %s", self._device_id, err)
 
