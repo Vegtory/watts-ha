@@ -48,6 +48,20 @@ MODE_CODE_TO_PRESET: dict[str, str] = {
 AUTO_MODE_CODES = {"8", "11", "13"}
 OFF_MODE_CODES = {"1", "14"}
 
+MODE_CODE_TO_SETPOINT_FIELD: dict[str, str] = {
+    "0": "consigne_confort",  # comfort
+    "2": "consigne_hg",  # frost protection
+    "3": "consigne_eco",  # eco
+    "4": "consigne_boost",  # boost
+    "8": "consigne_confort",  # auto comfort
+    "11": "consigne_eco",  # auto eco
+}
+
+
+def target_field_for_mode(mode_code: str) -> str:
+    """Return the best setpoint field for a given mode code."""
+    return MODE_CODE_TO_SETPOINT_FIELD.get(mode_code, "consigne_manuel")
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -162,6 +176,11 @@ class WattsDeviceClimate(CoordinatorEntity[WattsCoordinator], ClimateEntity):
         device_data = self._device_data()
         if not device_data:
             return None
+        mode_code = str(device_data.get("gv_mode", ""))
+        field_name = target_field_for_mode(mode_code)
+        value = decode_setpoint(device_data.get(field_name))
+        if value is not None:
+            return value
         return decode_setpoint(device_data.get("consigne_manuel"))
 
     @property
@@ -226,8 +245,10 @@ class WattsDeviceClimate(CoordinatorEntity[WattsCoordinator], ClimateEntity):
         if temperature is None:
             return
         try:
+            mode_code = str((self._device_data() or {}).get("gv_mode", ""))
+            target_field = target_field_for_mode(mode_code)
             await self._async_push_device_query(
-                {"query[consigne_manuel]": encode_setpoint(float(temperature))}
+                {f"query[{target_field}]": encode_setpoint(float(temperature))}
             )
         except (TypeError, ValueError, WattsApiError) as err:
             _LOGGER.error("Failed to set temperature for device %s: %s", self._device_id, err)

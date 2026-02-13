@@ -14,8 +14,6 @@ A custom Home Assistant integration for Watts SmartHome heating control systems.
   - Temperature sensors (air and floor)
   - Setpoint sensors (comfort, eco, manual)
   - Status sensors (heating status, error codes, last connection)
-  - Mode selectors for operating modes
-  - Manual setpoint controls
 - **Services**:
   - Apply heating programs to devices
   - Convert programs to UI-friendly format
@@ -96,8 +94,7 @@ For each heating device/zone:
 - **Program** - Active program name
 
 #### Controls
-- **Mode Selector** - Change operating mode (Comfort, Eco, Program, etc.)
-- **Manual Setpoint** - Set target temperature in manual mode
+- **Thermostat Controls** - Use the climate entity for mode and setpoint control
 
 ## Services
 
