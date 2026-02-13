@@ -18,11 +18,12 @@ _LOGGER = logging.getLogger(__name__)
 
 # Keep mode selector focused on meaningful user controls.
 MODE_LABEL_TO_CODE = {
-    "Off": "1",
     "Comfort": "0",
     "Eco": "3",
     "Boost": "4",
     "Program": "8",
+    "Frost": "2",
+    "Off": "1",
 }
 MODE_CODE_TO_LABEL = {code: label for label, code in MODE_LABEL_TO_CODE.items()}
 

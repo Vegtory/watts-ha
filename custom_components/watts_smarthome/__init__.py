@@ -22,6 +22,7 @@ from .const import (
     DEFAULT_POLLING_INTERVAL,
     DOMAIN,
     SERVICE_APPLY_PROGRAM,
+    SERVICE_SET_DAY_PROGRAM,
     SERVICE_SET_WEEKLY_PROGRAM,
     SERVICE_CONVERT_PROGRAM,
     SERVICE_UPDATE_NOW,
@@ -46,7 +47,20 @@ WEEK_DAYS = (
     "saturday",
     "sunday",
 )
-DAY_BLOCKS_SCHEMA = vol.All(cv.ensure_list, [dict])
+DAY_BLOCK_SCHEMA = vol.Schema(
+    {
+        vol.Required("start"): cv.string,
+        vol.Required("end"): cv.string,
+        vol.Optional("value"): cv.string,
+        vol.Optional("mode"): cv.string,
+    }
+)
+DAY_BLOCKS_SCHEMA = vol.All(cv.ensure_list, [DAY_BLOCK_SCHEMA])
+DAY_NAME_SCHEMA = vol.All(
+    cv.string,
+    lambda value: value.strip().lower(),
+    vol.In(WEEK_DAYS),
+)
 
 # Service schemas
 SERVICE_APPLY_PROGRAM_SCHEMA = vol.Schema(
@@ -71,12 +85,60 @@ SERVICE_SET_WEEKLY_PROGRAM_SCHEMA = vol.Schema(
     }
 )
 
+SERVICE_SET_DAY_PROGRAM_SCHEMA = vol.Schema(
+    {
+        vol.Required("device_id"): cv.string,
+        vol.Required("day"): DAY_NAME_SCHEMA,
+        vol.Required("blocks"): DAY_BLOCKS_SCHEMA,
+        vol.Optional("lang", default=DEFAULT_LANG): cv.string,
+    }
+)
+
 SERVICE_CONVERT_PROGRAM_SCHEMA = vol.Schema(
     {
         vol.Required("program_data"): dict,
         vol.Optional("lang", default=DEFAULT_LANG): cv.string,
     }
 )
+
+
+def _resolve_program_device_id(
+    coordinator: WattsCoordinator,
+    requested_device_id: str,
+) -> str:
+    """Resolve short/full device identifiers to the full API device_id form."""
+    requested = str(requested_device_id).strip()
+    if not requested:
+        return requested
+
+    requested_short = requested.split("#", 1)[1] if "#" in requested else requested
+
+    smarthomes = coordinator.data.get("smarthomes", {})
+    if not isinstance(smarthomes, dict):
+        return requested
+
+    for smarthome_data in smarthomes.values():
+        if not isinstance(smarthome_data, dict):
+            continue
+
+        devices = smarthome_data.get("devices", [])
+        if not isinstance(devices, list):
+            continue
+
+        for device in devices:
+            if not isinstance(device, dict):
+                continue
+
+            full_device_id = str(device.get("id", "")).strip()
+            short_device_id = str(device.get("id_device", "")).strip()
+            if (
+                requested == full_device_id
+                or requested == short_device_id
+                or requested_short == short_device_id
+            ):
+                return full_device_id or requested
+
+    return requested
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -121,7 +183,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Register services
     async def handle_apply_program(call: ServiceCall) -> None:
         """Handle the apply_program service call."""
-        device_id = call.data["device_id"]
+        device_id = _resolve_program_device_id(coordinator, call.data["device_id"])
         raw_program_data = call.data["program_data"]
         lang = call.data.get("lang", DEFAULT_LANG)
         program_data = normalize_program_data(raw_program_data)
@@ -152,7 +214,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     async def handle_set_weekly_program(call: ServiceCall) -> None:
         """Handle set_weekly_program service call using day-by-day fields."""
-        device_id = call.data["device_id"]
+        device_id = _resolve_program_device_id(coordinator, call.data["device_id"])
         lang = call.data.get("lang", DEFAULT_LANG)
 
         week_program: dict[str, Any] = {}
@@ -176,6 +238,34 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         except WattsApiError as err:
             _LOGGER.error("Failed to set weekly program for device %s: %s", device_id, err)
 
+    async def handle_set_day_program(call: ServiceCall) -> None:
+        """Handle set_day_program service call for one day at a time."""
+        device_id = _resolve_program_device_id(coordinator, call.data["device_id"])
+        day = str(call.data["day"]).strip().lower()
+        blocks = call.data["blocks"]
+        lang = call.data.get("lang", DEFAULT_LANG)
+
+        if not blocks:
+            _LOGGER.error(
+                "set_day_program for device %s failed: no blocks provided for %s",
+                device_id,
+                day,
+            )
+            return
+
+        try:
+            program_data = normalize_program_data({"program": {day: blocks}})
+            await api_client.async_apply_program(device_id, program_data, lang)
+            _LOGGER.info("Applied %s program blocks to device %s", day, device_id)
+            await coordinator.async_request_refresh()
+        except WattsApiError as err:
+            _LOGGER.error(
+                "Failed to set %s program blocks for device %s: %s",
+                day,
+                device_id,
+                err,
+            )
+
     # Register services only once
     if not hass.services.has_service(DOMAIN, SERVICE_APPLY_PROGRAM):
         hass.services.async_register(
@@ -191,6 +281,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             SERVICE_SET_WEEKLY_PROGRAM,
             handle_set_weekly_program,
             schema=SERVICE_SET_WEEKLY_PROGRAM_SCHEMA,
+        )
+
+    if not hass.services.has_service(DOMAIN, SERVICE_SET_DAY_PROGRAM):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_SET_DAY_PROGRAM,
+            handle_set_day_program,
+            schema=SERVICE_SET_DAY_PROGRAM_SCHEMA,
         )
 
     if not hass.services.has_service(DOMAIN, SERVICE_CONVERT_PROGRAM):
@@ -233,6 +331,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if not hass.data[DOMAIN]:
         hass.services.async_remove(DOMAIN, SERVICE_APPLY_PROGRAM)
         hass.services.async_remove(DOMAIN, SERVICE_SET_WEEKLY_PROGRAM)
+        hass.services.async_remove(DOMAIN, SERVICE_SET_DAY_PROGRAM)
         hass.services.async_remove(DOMAIN, SERVICE_CONVERT_PROGRAM)
         hass.services.async_remove(DOMAIN, SERVICE_UPDATE_NOW)
 

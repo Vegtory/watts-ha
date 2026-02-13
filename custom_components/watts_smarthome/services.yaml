@@ -42,45 +42,86 @@ set_weekly_program:
         text:
     monday:
       name: Monday Blocks
-      description: List of blocks, each with start/end/value (comfort or eco)
+      description: List of blocks, each with start/end and value or mode (comfort or eco)
       required: false
       example: '[{"start":"06:00","end":"08:00","value":"comfort"},{"start":"08:00","end":"23:00","value":"eco"}]'
       selector:
         object:
     tuesday:
       name: Tuesday Blocks
-      description: List of blocks, each with start/end/value (comfort or eco)
+      description: List of blocks, each with start/end and value or mode (comfort or eco)
       required: false
       selector:
         object:
     wednesday:
       name: Wednesday Blocks
-      description: List of blocks, each with start/end/value (comfort or eco)
+      description: List of blocks, each with start/end and value or mode (comfort or eco)
       required: false
       selector:
         object:
     thursday:
       name: Thursday Blocks
-      description: List of blocks, each with start/end/value (comfort or eco)
+      description: List of blocks, each with start/end and value or mode (comfort or eco)
       required: false
       selector:
         object:
     friday:
       name: Friday Blocks
-      description: List of blocks, each with start/end/value (comfort or eco)
+      description: List of blocks, each with start/end and value or mode (comfort or eco)
       required: false
       selector:
         object:
     saturday:
       name: Saturday Blocks
-      description: List of blocks, each with start/end/value (comfort or eco)
+      description: List of blocks, each with start/end and value or mode (comfort or eco)
       required: false
       selector:
         object:
     sunday:
       name: Sunday Blocks
-      description: List of blocks, each with start/end/value (comfort or eco)
+      description: List of blocks, each with start/end and value or mode (comfort or eco)
       required: false
+      selector:
+        object:
+    lang:
+      name: Language
+      description: Language code for API responses
+      required: false
+      default: "en"
+      selector:
+        text:
+
+set_day_program:
+  name: Set Day Program
+  description: Set program blocks for a single day on one device
+  fields:
+    device_id:
+      name: Device ID
+      description: Device ID (short like C001-000 or full ID with smarthome prefix)
+      required: true
+      example: "C001-000"
+      selector:
+        text:
+    day:
+      name: Day
+      description: Day to update
+      required: true
+      example: "monday"
+      selector:
+        select:
+          options:
+            - monday
+            - tuesday
+            - wednesday
+            - thursday
+            - friday
+            - saturday
+            - sunday
+    blocks:
+      name: Blocks
+      description: List of blocks, each with start/end and value or mode
+      required: true
+      example: '[{"start":"06:00","end":"08:00","value":"comfort"},{"start":"08:00","end":"23:00","value":"eco"}]'
       selector:
         object:
     lang:

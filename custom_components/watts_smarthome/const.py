@@ -39,6 +39,7 @@ ENDPOINT_TIME_OFFSET = "/api/v0.1/human/smarthome/time_offset/"
 # Service names
 SERVICE_APPLY_PROGRAM = "apply_program"
 SERVICE_SET_WEEKLY_PROGRAM = "set_weekly_program"
+SERVICE_SET_DAY_PROGRAM = "set_day_program"
 SERVICE_CONVERT_PROGRAM = "convert_program"
 SERVICE_UPDATE_NOW = "update_now"
 

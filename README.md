@@ -13,7 +13,7 @@ A custom Home Assistant integration for Watts SmartHome heating control systems.
   - Temperature sensors (air and floor)
   - Setpoint sensors and controls (comfort, eco, boost, manual, frost)
   - Boost timer control
-  - Mode selector (Off, Comfort, Eco, Boost, Program)
+  - Mode selector (Comfort, Eco, Boost, Program, Frost, Off)
   - Status sensors (heating status, error codes, last connection)
 - **Services**:
   - Apply heating programs to devices
@@ -89,7 +89,7 @@ For each heating device/zone:
 - **Program** - Active program name
 
 #### Controls
-- **Mode Selector** - Off / Comfort / Eco / Boost / Program
+- **Mode Selector** - Comfort / Eco / Boost / Program / Frost / Off
 - **Comfort Setpoint Number**
 - **Eco Setpoint Number**
 - **Boost Setpoint Number**
@@ -104,7 +104,7 @@ For each heating device/zone:
 Apply a weekly heating program to a device.
 
 **Parameters:**
-- `device_id` (required): Device ID
+- `device_id` (required): Device ID (`C001-000` or full `smarthome#device` ID)
 - `program_data` (required): Program data (flattened API keys or structured weekly schedule)
 - `lang` (optional): Language code (default: "en")
 
@@ -148,7 +148,7 @@ Convert a device program into UI-friendly time blocks.
 Set a weekly schedule with explicit day fields.
 
 **Parameters:**
-- `device_id` (required): Device ID
+- `device_id` (required): Device ID (`C001-000` or full `smarthome#device` ID)
 - `monday` .. `sunday` (optional): List of blocks with `start`, `end`, `value` (`comfort`/`eco`)
 - `lang` (optional): Language code (default: "en")
 
@@ -165,6 +165,31 @@ data:
       end: "23:00"
       value: "eco"
   tuesday:
+    - start: "06:00"
+      end: "08:00"
+      value: "comfort"
+    - start: "08:00"
+      end: "23:00"
+      value: "eco"
+```
+
+### `watts_smarthome.set_day_program`
+
+Set one day of the weekly schedule.
+
+**Parameters:**
+- `device_id` (required): Device ID (`C001-000` or full `smarthome#device` ID)
+- `day` (required): `monday`..`sunday`
+- `blocks` (required): List of blocks with `start`, `end`, and `value` or `mode`
+- `lang` (optional): Language code (default: "en")
+
+**Example:**
+```yaml
+service: watts_smarthome.set_day_program
+data:
+  device_id: "C001-000"
+  day: "monday"
+  blocks:
     - start: "06:00"
       end: "08:00"
       value: "comfort"

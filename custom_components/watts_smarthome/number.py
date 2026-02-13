@@ -5,9 +5,20 @@ from dataclasses import dataclass
 import logging
 from typing import Any
 
-from homeassistant.components.number import NumberEntity, NumberMode
+from homeassistant.components.number import NumberEntity
+try:
+    from homeassistant.components.number import NumberMode
+except ImportError:  # pragma: no cover - compatibility with older HA cores
+    NumberMode = None  # type: ignore[assignment]
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import UnitOfTemperature, UnitOfTime
+from homeassistant.const import UnitOfTemperature
+try:
+    from homeassistant.const import UnitOfTime
+except ImportError:  # pragma: no cover - compatibility with older HA cores
+    class UnitOfTime:  # type: ignore[no-redef]
+        """Fallback time units for older Home Assistant cores."""
+
+        MINUTES = "min"
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -104,9 +115,6 @@ async def async_setup_entry(
                 continue
 
             for description in DEVICE_NUMBERS:
-                if device.get(description.field) is None:
-                    continue
-
                 entities.append(
                     WattsDeviceConfigNumber(
                         coordinator=coordinator,
@@ -148,7 +156,7 @@ class WattsDeviceConfigNumber(CoordinatorEntity[WattsCoordinator], NumberEntity)
         )
         self._attr_unique_id = f"{smarthome_id}_{device_id}_{description.key}"
         self._attr_icon = description.icon
-        self._attr_mode = NumberMode.BOX
+        self._attr_mode = NumberMode.BOX if NumberMode is not None else "box"
         self._attr_native_step = description.native_step
         self._attr_native_unit_of_measurement = description.native_unit
 
