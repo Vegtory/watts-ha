@@ -1,0 +1,12 @@
+{
+  "domain": "watts_smarthome",
+  "name": "Watts SmartHome",
+  "codeowners": ["@Vegtory"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/Vegtory/watts-ha",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/Vegtory/watts-ha/issues",
+  "requirements": ["aiohttp>=3.8.0"],
+  "version": "0.1.0"
+}
