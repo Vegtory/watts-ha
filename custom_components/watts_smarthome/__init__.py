@@ -25,10 +25,16 @@ from .const import (
     SERVICE_UPDATE_NOW,
 )
 from .coordinator import WattsCoordinator
+from .program import normalize_program_data
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.SELECT, Platform.NUMBER]
+PLATFORMS: list[Platform] = [
+    Platform.SENSOR,
+    Platform.SELECT,
+    Platform.NUMBER,
+    Platform.CLIMATE,
+]
 
 # Service schemas
 SERVICE_APPLY_PROGRAM_SCHEMA = vol.Schema(
@@ -90,8 +96,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     async def handle_apply_program(call: ServiceCall) -> None:
         """Handle the apply_program service call."""
         device_id = call.data["device_id"]
-        program_data = call.data["program_data"]
+        raw_program_data = call.data["program_data"]
         lang = call.data.get("lang", DEFAULT_LANG)
+        program_data = normalize_program_data(raw_program_data)
 
         try:
             await api_client.async_apply_program(device_id, program_data, lang)

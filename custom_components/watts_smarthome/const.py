@@ -19,7 +19,7 @@ MIN_POLLING_INTERVAL = 30
 MAX_POLLING_INTERVAL = 3600
 
 # Platforms
-PLATFORMS = ["sensor", "select", "number"]
+PLATFORMS = ["sensor", "select", "number", "climate"]
 
 # Coordinator data keys
 DATA_COORDINATOR = "coordinator"

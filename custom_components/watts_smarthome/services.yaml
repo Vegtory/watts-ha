@@ -1,6 +1,6 @@
 apply_program:
   name: Apply Program
-  description: Apply a weekly heating/cooling program to a device
+  description: Apply a weekly program to a device
   fields:
     device_id:
       name: Device ID
@@ -11,9 +11,13 @@ apply_program:
         text:
     program_data:
       name: Program Data
-      description: The program data as a dictionary with program[DAY][i][start|end|value] keys
+      description: >
+        Program data. Supports flattened keys
+        (program[monday][0][start], program[monday][0][end], program[monday][0][value])
+        or a structured object:
+        {"program": {"monday": [{"start": "06:00", "end": "08:00", "value": "comfort"}]}}.
       required: true
-      example: '{"program[monday][0][start]": "08:00", "program[monday][0][end]": "22:00", "program[monday][0][value]": "20"}'
+      example: '{"program": {"monday": [{"start": "06:00", "end": "08:00", "value": "comfort"}, {"start": "08:00", "end": "23:00", "value": "eco"}]}}'
       selector:
         object:
     lang:

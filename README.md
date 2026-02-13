@@ -10,6 +10,7 @@ A custom Home Assistant integration for Watts SmartHome heating control systems.
 - **Automatic Token Management** - Handles authentication and token refresh automatically
 - **Multiple Accounts** - Support for multiple Watts SmartHome accounts
 - **Comprehensive Entity Support**:
+  - Climate entities for thermostat-style control
   - Temperature sensors (air and floor)
   - Setpoint sensors (comfort, eco, manual)
   - Status sensors (heating status, error codes, last connection)
@@ -77,6 +78,13 @@ The integration creates the following entities for each smarthome:
 
 For each heating device/zone:
 
+#### Climate
+- **Thermostat** - Main control entity with:
+  - HVAC modes (`off`, `heat`, `auto`)
+  - Target temperature
+  - Preset modes (comfort, eco, boost, frost protection, auto variants)
+  - HVAC action (heating/idle/off)
+
 #### Sensors
 - **Air Temperature** - Current air temperature
 - **Floor Temperature** - Current floor temperature (if available)
@@ -99,10 +107,26 @@ Apply a weekly heating program to a device.
 
 **Parameters:**
 - `device_id` (required): Device ID
-- `program_data` (required): Program data as dictionary
+- `program_data` (required): Program data (flattened API keys or structured weekly schedule)
 - `lang` (optional): Language code (default: "en")
 
-**Example:**
+**Example (structured):**
+```yaml
+service: watts_smarthome.apply_program
+data:
+  device_id: "MDA6MUU6QzA6NUI6RTk6NEQ_e#C001-000"
+  program_data:
+    program:
+      monday:
+        - start: "06:00"
+          end: "08:00"
+          value: "comfort"
+        - start: "08:00"
+          end: "23:00"
+          value: "eco"
+```
+
+**Example (flattened API format):**
 ```yaml
 service: watts_smarthome.apply_program
 data:
