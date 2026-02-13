@@ -29,6 +29,68 @@ apply_program:
       selector:
         text:
 
+set_weekly_program:
+  name: Set Weekly Program
+  description: Set per-day weekly program blocks and apply them to a device
+  fields:
+    device_id:
+      name: Device ID
+      description: The ID of the device to update
+      required: true
+      example: "MDA6MUU6QzA6NUI6RTk6NEQ_e#C001-000"
+      selector:
+        text:
+    monday:
+      name: Monday Blocks
+      description: List of blocks, each with start/end/value (comfort or eco)
+      required: false
+      example: '[{"start":"06:00","end":"08:00","value":"comfort"},{"start":"08:00","end":"23:00","value":"eco"}]'
+      selector:
+        object:
+    tuesday:
+      name: Tuesday Blocks
+      description: List of blocks, each with start/end/value (comfort or eco)
+      required: false
+      selector:
+        object:
+    wednesday:
+      name: Wednesday Blocks
+      description: List of blocks, each with start/end/value (comfort or eco)
+      required: false
+      selector:
+        object:
+    thursday:
+      name: Thursday Blocks
+      description: List of blocks, each with start/end/value (comfort or eco)
+      required: false
+      selector:
+        object:
+    friday:
+      name: Friday Blocks
+      description: List of blocks, each with start/end/value (comfort or eco)
+      required: false
+      selector:
+        object:
+    saturday:
+      name: Saturday Blocks
+      description: List of blocks, each with start/end/value (comfort or eco)
+      required: false
+      selector:
+        object:
+    sunday:
+      name: Sunday Blocks
+      description: List of blocks, each with start/end/value (comfort or eco)
+      required: false
+      selector:
+        object:
+    lang:
+      name: Language
+      description: Language code for API responses
+      required: false
+      default: "en"
+      selector:
+        text:
+
 convert_program:
   name: Convert Program
   description: Convert a device program into UI-friendly time blocks

@@ -10,12 +10,14 @@ A custom Home Assistant integration for Watts SmartHome heating control systems.
 - **Automatic Token Management** - Handles authentication and token refresh automatically
 - **Multiple Accounts** - Support for multiple Watts SmartHome accounts
 - **Comprehensive Entity Support**:
-  - Climate entities for thermostat-style control
   - Temperature sensors (air and floor)
-  - Setpoint sensors (comfort, eco, manual)
+  - Setpoint sensors and controls (comfort, eco, boost, manual, frost)
+  - Boost timer control
+  - Mode selector (Off, Comfort, Eco, Boost, Program)
   - Status sensors (heating status, error codes, last connection)
 - **Services**:
   - Apply heating programs to devices
+  - Set weekly program day-by-day
   - Convert programs to UI-friendly format
   - Manual data refresh
 - **Device Registry Integration** - All entities are properly grouped by device
@@ -76,13 +78,6 @@ The integration creates the following entities for each smarthome:
 
 For each heating device/zone:
 
-#### Climate
-- **Thermostat** - Main control entity with:
-  - HVAC modes (`off`, `heat`, `auto`)
-  - Target temperature
-  - Preset modes (`comfort`, `eco`)
-  - HVAC action (heating/idle/off)
-
 #### Sensors
 - **Air Temperature** - Current air temperature
 - **Floor Temperature** - Current floor temperature (if available)
@@ -94,7 +89,13 @@ For each heating device/zone:
 - **Program** - Active program name
 
 #### Controls
-- **Thermostat Controls** - Use the climate entity for mode and setpoint control
+- **Mode Selector** - Off / Comfort / Eco / Boost / Program
+- **Comfort Setpoint Number**
+- **Eco Setpoint Number**
+- **Boost Setpoint Number**
+- **Boost Timer Number** (minutes)
+- **Manual Setpoint Number**
+- **Frost Setpoint Number**
 
 ## Services
 
@@ -141,6 +142,36 @@ Convert a device program into UI-friendly time blocks.
 **Parameters:**
 - `program_data` (required): Raw program data
 - `lang` (optional): Language code (default: "en")
+
+### `watts_smarthome.set_weekly_program`
+
+Set a weekly schedule with explicit day fields.
+
+**Parameters:**
+- `device_id` (required): Device ID
+- `monday` .. `sunday` (optional): List of blocks with `start`, `end`, `value` (`comfort`/`eco`)
+- `lang` (optional): Language code (default: "en")
+
+**Example:**
+```yaml
+service: watts_smarthome.set_weekly_program
+data:
+  device_id: "MDA6MUU6QzA6NUI6RTk6NEQ_e#C001-000"
+  monday:
+    - start: "06:00"
+      end: "08:00"
+      value: "comfort"
+    - start: "08:00"
+      end: "23:00"
+      value: "eco"
+  tuesday:
+    - start: "06:00"
+      end: "08:00"
+      value: "comfort"
+    - start: "08:00"
+      end: "23:00"
+      value: "eco"
+```
 
 ### `watts_smarthome.update_now`
 

@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
@@ -13,14 +12,30 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .api import WattsApiError
 from .const import DATA_API_CLIENT, DATA_COORDINATOR, DEFAULT_LANG, DOMAIN
 from .coordinator import WattsCoordinator
-from .formatting import (
-    MODE_OPTIONS,
-    device_label,
-    format_mode,
-    mode_code_from_label,
-)
+from .formatting import device_label
 
 _LOGGER = logging.getLogger(__name__)
+
+# Keep mode selector focused on meaningful user controls.
+MODE_LABEL_TO_CODE = {
+    "Off": "1",
+    "Comfort": "0",
+    "Eco": "3",
+    "Boost": "4",
+    "Program": "8",
+}
+MODE_CODE_TO_LABEL = {code: label for label, code in MODE_LABEL_TO_CODE.items()}
+
+
+def _normalize_mode_code(mode_code: str) -> str:
+    """Normalize equivalent server mode values to selector options."""
+    aliases = {
+        "14": "1",
+        "12": "0",
+        "11": "8",
+        "13": "8",
+    }
+    return aliases.get(mode_code, mode_code)
 
 
 async def async_setup_entry(
@@ -34,7 +49,6 @@ async def async_setup_entry(
 
     entities: list[SelectEntity] = []
 
-    # Create device-level select entities
     for smarthome_id, smarthome_data in coordinator.data.get("smarthomes", {}).items():
         if "error" in smarthome_data:
             continue
@@ -44,18 +58,18 @@ async def async_setup_entry(
             if not device_id:
                 continue
 
-            # Add operating mode select if gv_mode is available
-            if device.get("gv_mode") is not None:
-                entities.append(
-                    WattsDeviceModeSelect(
-                        coordinator,
-                        api_client,
-                        smarthome_id,
-                        str(device_id),
-                        device,
-                        smarthome_data.get("info", {}),
-                    )
+            if device.get("gv_mode") is None:
+                continue
+
+            entities.append(
+                WattsDeviceModeSelect(
+                    coordinator,
+                    api_client,
+                    smarthome_id,
+                    str(device_id),
+                    device,
                 )
+            )
 
     async_add_entities(entities)
 
@@ -69,8 +83,7 @@ class WattsDeviceModeSelect(CoordinatorEntity[WattsCoordinator], SelectEntity):
         api_client,
         smarthome_id: str,
         device_id: str,
-        device_data: dict[str, Any],
-        smarthome_info: dict[str, Any],
+        device_data: dict,
     ) -> None:
         """Initialize the select entity."""
         super().__init__(coordinator)
@@ -83,17 +96,11 @@ class WattsDeviceModeSelect(CoordinatorEntity[WattsCoordinator], SelectEntity):
             else f"{smarthome_id}#{device_id}"
         )
         self._attr_unique_id = f"{smarthome_id}_{device_id}_mode"
+        self._attr_options = list(MODE_LABEL_TO_CODE.keys())
+        self._attr_icon = "mdi:thermostat-auto"
 
         resolved_device_label = device_label(device_data, device_id)
         self._attr_name = f"{resolved_device_label} Mode"
-        self._attr_icon = "mdi:thermostat-auto"
-
-        self._attr_options = list(MODE_OPTIONS)
-        current_mode = format_mode(device_data.get("gv_mode"))
-        if current_mode and current_mode not in self._attr_options:
-            self._attr_options.append(current_mode)
-
-        # Device info for grouping entities
         self._attr_device_info = {
             "identifiers": {(DOMAIN, f"{smarthome_id}_{device_id}")},
             "name": resolved_device_label,
@@ -102,41 +109,58 @@ class WattsDeviceModeSelect(CoordinatorEntity[WattsCoordinator], SelectEntity):
             "via_device": (DOMAIN, smarthome_id),
         }
 
+    def _device_data(self) -> dict | None:
+        """Return merged device payload."""
+        return self.coordinator.get_device_data(self._smarthome_id, self._device_id)
+
     @property
     def current_option(self) -> str | None:
         """Return the current selected option."""
-        device_data = self.coordinator.get_device_data(self._smarthome_id, self._device_id)
+        device_data = self._device_data()
         if not device_data:
             return None
 
-        return format_mode(device_data.get("gv_mode"))
+        raw_mode = str(device_data.get("gv_mode", ""))
+        mode_code = _normalize_mode_code(raw_mode)
+        return MODE_CODE_TO_LABEL.get(mode_code)
+
+    def _query_base(self) -> dict[str, str]:
+        """Return required protocol fields for device-scoped writes."""
+        return {
+            "query[id_device]": self._device_id,
+            "query[id]": self._device_query_id,
+            "peremption": "15000",
+            "context": "1",
+        }
 
     async def async_select_option(self, option: str) -> None:
         """Change the selected option."""
-        mode_code = mode_code_from_label(option)
-        if mode_code is None and option.startswith("Mode "):
-            mode_code = option.replace("Mode ", "", 1).strip()
-
+        mode_code = MODE_LABEL_TO_CODE.get(option)
         if mode_code is None:
             _LOGGER.error("Invalid mode option: %s", option)
             return
 
         try:
-            # Push query to change mode
             query_data = {
                 "query[gv_mode]": mode_code,
-                "query[id_device]": self._device_id,
-                "query[id]": self._device_query_id,
-                "context": "device",
+                "query[nv_mode]": mode_code,
+                **self._query_base(),
             }
+
+            # Boost mode requires a timer; default to 60 minutes if unset.
+            if mode_code == "4":
+                try:
+                    current_time_boost = int(float((self._device_data() or {}).get("time_boost", 0)))
+                except (TypeError, ValueError):
+                    current_time_boost = 0
+                if current_time_boost <= 0:
+                    query_data["query[time_boost]"] = "3600"
 
             await self._api_client.async_push_query(
                 self._smarthome_id,
                 query_data,
                 lang=DEFAULT_LANG,
             )
-
-            # Refresh coordinator data
             await self.coordinator.async_request_refresh()
 
         except WattsApiError as err:

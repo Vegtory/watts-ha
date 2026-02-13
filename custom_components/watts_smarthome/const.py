@@ -19,7 +19,7 @@ MIN_POLLING_INTERVAL = 30
 MAX_POLLING_INTERVAL = 3600
 
 # Platforms
-PLATFORMS = ["sensor", "climate"]
+PLATFORMS = ["sensor", "select", "number"]
 
 # Coordinator data keys
 DATA_COORDINATOR = "coordinator"
@@ -38,6 +38,7 @@ ENDPOINT_TIME_OFFSET = "/api/v0.1/human/smarthome/time_offset/"
 
 # Service names
 SERVICE_APPLY_PROGRAM = "apply_program"
+SERVICE_SET_WEEKLY_PROGRAM = "set_weekly_program"
 SERVICE_CONVERT_PROGRAM = "convert_program"
 SERVICE_UPDATE_NOW = "update_now"
 

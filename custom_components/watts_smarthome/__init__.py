@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 import logging
+from typing import Any
 
 import voluptuous as vol
 
@@ -21,6 +22,7 @@ from .const import (
     DEFAULT_POLLING_INTERVAL,
     DOMAIN,
     SERVICE_APPLY_PROGRAM,
+    SERVICE_SET_WEEKLY_PROGRAM,
     SERVICE_CONVERT_PROGRAM,
     SERVICE_UPDATE_NOW,
 )
@@ -31,14 +33,40 @@ _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS: list[Platform] = [
     Platform.SENSOR,
-    Platform.CLIMATE,
+    Platform.SELECT,
+    Platform.NUMBER,
 ]
+
+WEEK_DAYS = (
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+    "sunday",
+)
+DAY_BLOCKS_SCHEMA = vol.All(cv.ensure_list, [dict])
 
 # Service schemas
 SERVICE_APPLY_PROGRAM_SCHEMA = vol.Schema(
     {
         vol.Required("device_id"): cv.string,
         vol.Required("program_data"): dict,
+        vol.Optional("lang", default=DEFAULT_LANG): cv.string,
+    }
+)
+
+SERVICE_SET_WEEKLY_PROGRAM_SCHEMA = vol.Schema(
+    {
+        vol.Required("device_id"): cv.string,
+        vol.Optional("monday"): DAY_BLOCKS_SCHEMA,
+        vol.Optional("tuesday"): DAY_BLOCKS_SCHEMA,
+        vol.Optional("wednesday"): DAY_BLOCKS_SCHEMA,
+        vol.Optional("thursday"): DAY_BLOCKS_SCHEMA,
+        vol.Optional("friday"): DAY_BLOCKS_SCHEMA,
+        vol.Optional("saturday"): DAY_BLOCKS_SCHEMA,
+        vol.Optional("sunday"): DAY_BLOCKS_SCHEMA,
         vol.Optional("lang", default=DEFAULT_LANG): cv.string,
     }
 )
@@ -122,6 +150,32 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await coordinator.async_request_refresh()
         _LOGGER.info("Triggered manual update")
 
+    async def handle_set_weekly_program(call: ServiceCall) -> None:
+        """Handle set_weekly_program service call using day-by-day fields."""
+        device_id = call.data["device_id"]
+        lang = call.data.get("lang", DEFAULT_LANG)
+
+        week_program: dict[str, Any] = {}
+        for day in WEEK_DAYS:
+            day_blocks = call.data.get(day)
+            if day_blocks:
+                week_program[day] = day_blocks
+
+        if not week_program:
+            _LOGGER.error(
+                "set_weekly_program for device %s failed: no day blocks provided",
+                device_id,
+            )
+            return
+
+        try:
+            program_data = normalize_program_data({"program": week_program})
+            await api_client.async_apply_program(device_id, program_data, lang)
+            _LOGGER.info("Applied weekly program to device %s", device_id)
+            await coordinator.async_request_refresh()
+        except WattsApiError as err:
+            _LOGGER.error("Failed to set weekly program for device %s: %s", device_id, err)
+
     # Register services only once
     if not hass.services.has_service(DOMAIN, SERVICE_APPLY_PROGRAM):
         hass.services.async_register(
@@ -129,6 +183,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             SERVICE_APPLY_PROGRAM,
             handle_apply_program,
             schema=SERVICE_APPLY_PROGRAM_SCHEMA,
+        )
+
+    if not hass.services.has_service(DOMAIN, SERVICE_SET_WEEKLY_PROGRAM):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_SET_WEEKLY_PROGRAM,
+            handle_set_weekly_program,
+            schema=SERVICE_SET_WEEKLY_PROGRAM_SCHEMA,
         )
 
     if not hass.services.has_service(DOMAIN, SERVICE_CONVERT_PROGRAM):
@@ -170,6 +232,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Only remove services if no other entries remain
     if not hass.data[DOMAIN]:
         hass.services.async_remove(DOMAIN, SERVICE_APPLY_PROGRAM)
+        hass.services.async_remove(DOMAIN, SERVICE_SET_WEEKLY_PROGRAM)
         hass.services.async_remove(DOMAIN, SERVICE_CONVERT_PROGRAM)
         hass.services.async_remove(DOMAIN, SERVICE_UPDATE_NOW)
 
