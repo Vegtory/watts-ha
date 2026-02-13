@@ -1,0 +1,50 @@
+apply_program:
+  name: Apply Program
+  description: Apply a weekly heating/cooling program to a device
+  fields:
+    device_id:
+      name: Device ID
+      description: The ID of the device to apply the program to
+      required: true
+      example: "12345"
+      selector:
+        text:
+    program_data:
+      name: Program Data
+      description: The program data as a dictionary with program[DAY][i][start|end|value] keys
+      required: true
+      example: '{"program[monday][0][start]": "08:00", "program[monday][0][end]": "22:00", "program[monday][0][value]": "20"}'
+      selector:
+        object:
+    lang:
+      name: Language
+      description: Language code for API responses
+      required: false
+      default: "en"
+      example: "en"
+      selector:
+        text:
+
+convert_program:
+  name: Convert Program
+  description: Convert a device program into UI-friendly time blocks
+  fields:
+    program_data:
+      name: Program Data
+      description: The raw program data to convert
+      required: true
+      example: '{"device_id": "12345", "width": "1000"}'
+      selector:
+        object:
+    lang:
+      name: Language
+      description: Language code for API responses
+      required: false
+      default: "en"
+      example: "en"
+      selector:
+        text:
+
+update_now:
+  name: Update Now
+  description: Trigger an immediate update of all Watts SmartHome data
