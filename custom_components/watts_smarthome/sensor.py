@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
 import logging
 from typing import Any
 
@@ -21,6 +20,13 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DATA_COORDINATOR, DOMAIN
 from .coordinator import WattsCoordinator
+from .formatting import (
+    decode_setpoint,
+    decode_temperature,
+    device_label,
+    format_binary_state,
+    format_mode,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -39,13 +45,17 @@ SMARTHOME_SENSORS: tuple[WattsSensorEntityDescription, ...] = (
         key="general_mode",
         name="General Mode",
         icon="mdi:home-automation",
-        value_fn=lambda data: data.get("info", {}).get("general_mode"),
+        value_fn=lambda data: format_binary_state(
+            data.get("info", {}).get("general_mode"), "On", "Off"
+        ),
     ),
     WattsSensorEntityDescription(
         key="holiday_mode",
         name="Holiday Mode",
         icon="mdi:island",
-        value_fn=lambda data: data.get("info", {}).get("holiday_mode"),
+        value_fn=lambda data: format_binary_state(
+            data.get("info", {}).get("holiday_mode"), "On", "Off"
+        ),
     ),
     WattsSensorEntityDescription(
         key="last_connection_diff",
@@ -60,7 +70,19 @@ SMARTHOME_SENSORS: tuple[WattsSensorEntityDescription, ...] = (
         name="Error Count",
         icon="mdi:alert-circle",
         state_class=SensorStateClass.MEASUREMENT,
-        value_fn=lambda data: len(data.get("errors", {}).get("errors", [])) if isinstance(data.get("errors", {}).get("errors"), list) else 0,
+        value_fn=lambda data: sum(
+            len(device.get("errors", []))
+            for device in data.get("devices", [])
+            if isinstance(device.get("errors", []), list)
+        ),
+    ),
+    WattsSensorEntityDescription(
+        key="time_offset",
+        name="Time Offset",
+        icon="mdi:clock-fast",
+        device_class=SensorDeviceClass.DURATION,
+        native_unit_of_measurement="s",
+        value_fn=lambda data: data.get("time_offset", {}).get("time_offset"),
     ),
 )
 
@@ -72,7 +94,7 @@ DEVICE_SENSORS: tuple[WattsSensorEntityDescription, ...] = (
         device_class=SensorDeviceClass.TEMPERATURE,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         state_class=SensorStateClass.MEASUREMENT,
-        value_fn=lambda dev: float(dev.get("temperature_air", 0)) if dev.get("temperature_air") else None,
+        value_fn=lambda dev: decode_temperature(dev.get("temperature_air")),
         exists_fn=lambda dev: dev.get("temperature_air") is not None,
     ),
     WattsSensorEntityDescription(
@@ -81,7 +103,7 @@ DEVICE_SENSORS: tuple[WattsSensorEntityDescription, ...] = (
         device_class=SensorDeviceClass.TEMPERATURE,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         state_class=SensorStateClass.MEASUREMENT,
-        value_fn=lambda dev: float(dev.get("temperature_sol", 0)) if dev.get("temperature_sol") else None,
+        value_fn=lambda dev: decode_temperature(dev.get("temperature_sol")),
         exists_fn=lambda dev: dev.get("temperature_sol") is not None,
     ),
     WattsSensorEntityDescription(
@@ -90,7 +112,7 @@ DEVICE_SENSORS: tuple[WattsSensorEntityDescription, ...] = (
         device_class=SensorDeviceClass.TEMPERATURE,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         state_class=SensorStateClass.MEASUREMENT,
-        value_fn=lambda dev: float(dev.get("consigne_confort", 0)) if dev.get("consigne_confort") else None,
+        value_fn=lambda dev: decode_setpoint(dev.get("consigne_confort")),
         exists_fn=lambda dev: dev.get("consigne_confort") is not None,
     ),
     WattsSensorEntityDescription(
@@ -99,14 +121,41 @@ DEVICE_SENSORS: tuple[WattsSensorEntityDescription, ...] = (
         device_class=SensorDeviceClass.TEMPERATURE,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         state_class=SensorStateClass.MEASUREMENT,
-        value_fn=lambda dev: float(dev.get("consigne_eco", 0)) if dev.get("consigne_eco") else None,
+        value_fn=lambda dev: decode_setpoint(dev.get("consigne_eco")),
         exists_fn=lambda dev: dev.get("consigne_eco") is not None,
+    ),
+    WattsSensorEntityDescription(
+        key="consigne_manuel",
+        name="Manual Setpoint",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda dev: decode_setpoint(dev.get("consigne_manuel")),
+        exists_fn=lambda dev: dev.get("consigne_manuel") is not None,
+    ),
+    WattsSensorEntityDescription(
+        key="consigne_hg",
+        name="Frost Setpoint",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda dev: decode_setpoint(dev.get("consigne_hg")),
+        exists_fn=lambda dev: dev.get("consigne_hg") is not None,
+    ),
+    WattsSensorEntityDescription(
+        key="consigne_boost",
+        name="Boost Setpoint",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda dev: decode_setpoint(dev.get("consigne_boost")),
+        exists_fn=lambda dev: dev.get("consigne_boost") is not None,
     ),
     WattsSensorEntityDescription(
         key="heating_up",
         name="Heating Status",
         icon="mdi:radiator",
-        value_fn=lambda dev: "Heating" if dev.get("heating_up") == "1" else "Idle",
+        value_fn=lambda dev: format_binary_state(dev.get("heating_up"), "Heating", "Idle"),
     ),
     WattsSensorEntityDescription(
         key="error_code",
@@ -118,7 +167,7 @@ DEVICE_SENSORS: tuple[WattsSensorEntityDescription, ...] = (
         key="gv_mode",
         name="Operating Mode",
         icon="mdi:thermostat",
-        value_fn=lambda dev: dev.get("gv_mode"),
+        value_fn=lambda dev: format_mode(dev.get("gv_mode")),
     ),
     WattsSensorEntityDescription(
         key="programme",
@@ -155,30 +204,26 @@ async def async_setup_entry(
             )
 
         # Create device-level sensors
-        details = smarthome_data.get("details", {})
-        zones = details.get("zones", [])
-        
-        for zone in zones:
-            for device in zone.get("devices", []):
-                device_id = device.get("id_device") or device.get("id")
-                if not device_id:
+        for device in coordinator.get_smarthome_devices(smarthome_id):
+            device_id = device.get("id_device") or device.get("id")
+            if not device_id:
+                continue
+
+            for description in DEVICE_SENSORS:
+                # Skip sensors that don't exist for this device
+                if description.exists_fn and not description.exists_fn(device):
                     continue
 
-                for description in DEVICE_SENSORS:
-                    # Skip sensors that don't exist for this device
-                    if description.exists_fn and not description.exists_fn(device):
-                        continue
-                    
-                    entities.append(
-                        WattsDeviceSensor(
-                            coordinator,
-                            description,
-                            smarthome_id,
-                            device_id,
-                            device,
-                            smarthome_data.get("info", {}),
-                        )
+                entities.append(
+                    WattsDeviceSensor(
+                        coordinator,
+                        description,
+                        smarthome_id,
+                        str(device_id),
+                        device,
+                        smarthome_data.get("info", {}),
                     )
+                )
 
     async_add_entities(entities)
 
@@ -246,15 +291,15 @@ class WattsDeviceSensor(CoordinatorEntity[WattsCoordinator], SensorEntity):
         self._smarthome_id = smarthome_id
         self._device_id = device_id
         self._attr_unique_id = f"{smarthome_id}_{device_id}_{description.key}"
-        
-        device_label = device_data.get("nom_appareil") or device_data.get("label_interface") or device_id
-        self._attr_name = f"{device_label} {description.name}"
+
+        resolved_device_label = device_label(device_data, device_id)
+        self._attr_name = f"{resolved_device_label} {description.name}"
         
         # Device info for grouping entities
         smarthome_label = smarthome_info.get("label", smarthome_id)
         self._attr_device_info = {
             "identifiers": {(DOMAIN, f"{smarthome_id}_{device_id}")},
-            "name": device_label,
+            "name": resolved_device_label,
             "manufacturer": "Watts",
             "model": device_data.get("bundle_id", "Device"),
             "via_device": (DOMAIN, smarthome_id),

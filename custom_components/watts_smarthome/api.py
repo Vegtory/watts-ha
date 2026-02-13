@@ -18,6 +18,7 @@ from .const import (
     ENDPOINT_GET_ERRORS,
     ENDPOINT_QUERY_PUSH,
     ENDPOINT_SMARTHOME_READ,
+    ENDPOINT_STATS_READ,
     ENDPOINT_TIME_OFFSET,
     ENDPOINT_USER_READ,
     GRANT_TYPE_PASSWORD,
@@ -254,6 +255,13 @@ class WattsApiClient:
         """Get smarthome time offset."""
         data = {"smarthome_id": smarthome_id, "lang": lang}
         return await self._request("POST", ENDPOINT_TIME_OFFSET, data=data)
+
+    async def async_get_stats(
+        self, smarthome_id: str, lang: str = DEFAULT_LANG
+    ) -> dict[str, Any]:
+        """Get smarthome/device usage statistics."""
+        data = {"smarthome_id": smarthome_id, "lang": lang}
+        return await self._request("POST", ENDPOINT_STATS_READ, data=data)
 
     async def async_apply_program(
         self,
