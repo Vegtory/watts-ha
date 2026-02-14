@@ -213,13 +213,21 @@ class WattsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if device is None:
                 raise HomeAssistantError(f"Unknown Watts device: {smarthome_id}#{device_id}")
 
-            query = self._base_query(device_id, device)
+            query: dict[str, str] = {"id_device": device_id}
             for key, value in updates.items():
                 query[key] = str(value)
 
             try:
                 await self.api.async_push_query(smarthome_id, query)
             except WattsApiError as err:
-                raise HomeAssistantError(f"Failed to update Watts device: {err}") from err
+                # Fallback with full snapshot payload for backend variants that require full context.
+                fallback_query = self._base_query(device_id, device)
+                fallback_query.update(query)
+                try:
+                    await self.api.async_push_query(smarthome_id, fallback_query)
+                except WattsApiError as fallback_err:
+                    raise HomeAssistantError(
+                        f"Failed to update Watts device: {fallback_err}"
+                    ) from fallback_err
 
         await self.async_request_refresh()

@@ -2,14 +2,23 @@
 
 from __future__ import annotations
 
+import logging
+
 from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN, MODE_CODE_TO_OPTION, MODE_OPTION_TO_CODE
+from .const import (
+    DOMAIN,
+    MODE_CODE_TO_NVGV_MODE_ID,
+    MODE_CODE_TO_OPTION,
+    MODE_OPTION_TO_CODE,
+)
 from .entity import WattsDeviceEntity
 from . import WattsRuntimeData
+
+_LOGGER = logging.getLogger(__name__)
 
 MODE_OPTIONS = list(MODE_OPTION_TO_CODE)
 
@@ -69,8 +78,39 @@ class WattsModeSelect(WattsDeviceEntity, SelectEntity):
         if option not in MODE_OPTION_TO_CODE:
             raise ValueError(f"Unsupported Watts mode option: {option}")
         mode_code = MODE_OPTION_TO_CODE[option]
+        updates = {"gv_mode": mode_code, "nv_mode": mode_code}
+        nvgv_mode_id = MODE_CODE_TO_NVGV_MODE_ID.get(mode_code)
+        if nvgv_mode_id is not None:
+            updates["nvgv_mode_id"] = nvgv_mode_id
+
         await self.coordinator.async_push_device_update(
             self._smarthome_id,
             self._device_id,
-            {"gv_mode": mode_code, "nv_mode": mode_code},
+            updates,
         )
+
+        device = self._device
+        if device is None:
+            return
+
+        current_mode = str(device.get("gv_mode", ""))
+        if current_mode == mode_code:
+            return
+
+        # Retry with nvgv_mode_id only for backends that ignore gv_mode/nv_mode.
+        if nvgv_mode_id is not None:
+            await self.coordinator.async_push_device_update(
+                self._smarthome_id,
+                self._device_id,
+                {"nvgv_mode_id": nvgv_mode_id},
+            )
+
+        device = self._device
+        if device and str(device.get("gv_mode", "")) != mode_code:
+            _LOGGER.warning(
+                "Watts mode change for %s#%s not yet reflected. target=%s current=%s",
+                self._smarthome_id,
+                self._device_id,
+                mode_code,
+                device.get("gv_mode"),
+            )
