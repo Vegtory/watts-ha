@@ -22,8 +22,8 @@ DEFAULT_SCAN_INTERVAL = 60
 MIN_SCAN_INTERVAL = 30
 MAX_SCAN_INTERVAL = 3600
 
-DEFAULT_CONTEXT = "4"
-DEFAULT_PEREMPTION_MS = 20000
+DEFAULT_CONTEXT = "1"
+DEFAULT_PEREMPTION_MS = 15000
 
 CONF_LANG = "lang"
 CONF_SCAN_INTERVAL = "scan_interval"
@@ -74,17 +74,4 @@ MODE_CODE_TO_LABEL: dict[str, str] = {
     "12": "on",
     "13": "auto",
     "14": "disabled",
-}
-
-MODE_CODE_TO_NVGV_MODE_ID: dict[str, str] = {
-    "0": "1",
-    "1": "2",
-    "2": "3",
-    "3": "13",
-    "4": "4",
-    "8": "5",
-    "11": "6",
-    "12": "7",
-    "13": "12",
-    "14": "14",
 }

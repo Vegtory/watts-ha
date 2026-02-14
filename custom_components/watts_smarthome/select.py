@@ -12,7 +12,6 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
     DOMAIN,
-    MODE_CODE_TO_NVGV_MODE_ID,
     MODE_CODE_TO_OPTION,
     MODE_OPTION_TO_CODE,
 )
@@ -80,9 +79,17 @@ class WattsModeSelect(WattsDeviceEntity, SelectEntity):
             raise ValueError(f"Unsupported Watts mode option: {option}")
         mode_code = MODE_OPTION_TO_CODE[option]
         updates = {"gv_mode": mode_code, "nv_mode": mode_code}
-        nvgv_mode_id = MODE_CODE_TO_NVGV_MODE_ID.get(mode_code)
-        if nvgv_mode_id is not None:
-            updates["nvgv_mode_id"] = nvgv_mode_id
+
+        device = self._device
+        if device and option == "Boost":
+            # Match observed webapp payload for boost requests.
+            boost_setpoint = device.get("consigne_boost")
+            boost_time = device.get("time_boost")
+            if boost_time is not None:
+                updates["time_boost"] = str(boost_time)
+            if boost_setpoint is not None:
+                updates["consigne_boost"] = str(boost_setpoint)
+                updates["consigne_manuel"] = str(boost_setpoint)
 
         first_attempt = await self.coordinator.async_push_device_update(
             self._smarthome_id,
@@ -98,27 +105,17 @@ class WattsModeSelect(WattsDeviceEntity, SelectEntity):
         if current_mode == mode_code:
             return
 
-        # Retry with nvgv_mode_id only for backends that ignore gv_mode/nv_mode.
-        second_attempt: dict[str, Any] | None = None
-        if nvgv_mode_id is not None:
-            second_attempt = await self.coordinator.async_push_device_update(
-                self._smarthome_id,
-                self._device_id,
-                {"nvgv_mode_id": nvgv_mode_id},
-            )
-
         device = self._device
         if device and str(device.get("gv_mode", "")) != mode_code:
             check_failure = await self.coordinator.async_check_query_failure(self._smarthome_id)
             _LOGGER.warning(
                 "Watts mode change not reflected for %s#%s target=%s current=%s "
-                "first_attempt=%s second_attempt=%s check_failure=%s",
+                "first_attempt=%s check_failure=%s",
                 self._smarthome_id,
                 self._device_id,
                 mode_code,
                 device.get("gv_mode"),
                 self._summarize_attempts(first_attempt),
-                self._summarize_attempts(second_attempt),
                 self._summarize_check_failure(check_failure),
             )
 
@@ -140,7 +137,6 @@ class WattsModeSelect(WattsDeviceEntity, SelectEntity):
                 mode_query = {
                     "gv_mode": query.get("gv_mode"),
                     "nv_mode": query.get("nv_mode"),
-                    "nvgv_mode_id": query.get("nvgv_mode_id"),
                     "id_device": query.get("id_device"),
                 }
             else:

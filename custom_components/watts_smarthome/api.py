@@ -276,6 +276,7 @@ class WattsApiClient:
             raise WattsApiError("query_values must include id_device")
 
         payload: dict[str, Any] = {
+            "token": "true",
             "smarthome_id": smarthome_id,
             "context": str(context),
             "peremption": str(peremption_ms),
@@ -283,13 +284,7 @@ class WattsApiClient:
         for field, value in query_values.items():
             payload[f"query[{field}]"] = str(value)
 
-        try:
-            return await self._async_api_post(ENDPOINT_QUERY_PUSH, payload)
-        except WattsApiError:
-            # Some environments expect token="true" in form payload while auth stays in header.
-            payload_with_bool_token = dict(payload)
-            payload_with_bool_token["token"] = "true"
-            return await self._async_api_post(ENDPOINT_QUERY_PUSH, payload_with_bool_token)
+        return await self._async_api_post(ENDPOINT_QUERY_PUSH, payload)
 
     async def async_get_errors(self, smarthome_id: str, *, type_id: str = "all") -> dict[str, Any]:
         """Fetch errors for a smarthome."""
@@ -320,7 +315,7 @@ class WattsApiClient:
         """Check whether backend reported query execution failures."""
         return await self._async_api_post(
             _ENDPOINT_QUERY_CHECK_FAILURE,
-            {"smarthome_id": smarthome_id},
+            {"token": "true", "smarthome_id": smarthome_id},
         )
 
     async def _request(
