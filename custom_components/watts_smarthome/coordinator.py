@@ -206,8 +206,10 @@ class WattsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         smarthome_id: str,
         device_id: str,
         updates: Mapping[str, Any],
-    ) -> None:
+    ) -> dict[str, Any]:
         """Push an update for a single device and refresh coordinator data."""
+        diagnostic: dict[str, Any] = {"attempts": []}
+
         async with self._command_lock:
             device = self.get_device(smarthome_id, device_id)
             if device is None:
@@ -218,16 +220,79 @@ class WattsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 query[key] = str(value)
 
             try:
-                await self.api.async_push_query(smarthome_id, query)
+                response = await self.api.async_push_query(smarthome_id, query)
+                diagnostic["attempts"].append(
+                    {
+                        "strategy": "minimal",
+                        "query": dict(query),
+                        "code": self._response_code(response),
+                        "key": self._response_key(response),
+                        "value": self._response_value(response),
+                    }
+                )
             except WattsApiError as err:
+                diagnostic["attempts"].append(
+                    {
+                        "strategy": "minimal",
+                        "query": dict(query),
+                        "error": str(err),
+                    }
+                )
                 # Fallback with full snapshot payload for backend variants that require full context.
                 fallback_query = self._base_query(device_id, device)
                 fallback_query.update(query)
                 try:
-                    await self.api.async_push_query(smarthome_id, fallback_query)
+                    response = await self.api.async_push_query(smarthome_id, fallback_query)
+                    diagnostic["attempts"].append(
+                        {
+                            "strategy": "fallback_full",
+                            "query": dict(fallback_query),
+                            "code": self._response_code(response),
+                            "key": self._response_key(response),
+                            "value": self._response_value(response),
+                        }
+                    )
                 except WattsApiError as fallback_err:
+                    diagnostic["attempts"].append(
+                        {
+                            "strategy": "fallback_full",
+                            "query": dict(fallback_query),
+                            "error": str(fallback_err),
+                        }
+                    )
                     raise HomeAssistantError(
                         f"Failed to update Watts device: {fallback_err}"
                     ) from fallback_err
 
         await self.async_request_refresh()
+        return diagnostic
+
+    async def async_check_query_failure(self, smarthome_id: str) -> dict[str, Any]:
+        """Return query failure payload for diagnostics."""
+        try:
+            return await self.api.async_check_query_failure(smarthome_id)
+        except WattsApiError as err:
+            return {"error": str(err)}
+
+    @staticmethod
+    def _response_code(response: Mapping[str, Any]) -> str | None:
+        code = response.get("code")
+        if isinstance(code, Mapping):
+            return str(code.get("code"))
+        return None
+
+    @staticmethod
+    def _response_key(response: Mapping[str, Any]) -> str | None:
+        code = response.get("code")
+        if isinstance(code, Mapping):
+            value = code.get("key")
+            return str(value) if value is not None else None
+        return None
+
+    @staticmethod
+    def _response_value(response: Mapping[str, Any]) -> str | None:
+        code = response.get("code")
+        if isinstance(code, Mapping):
+            value = code.get("value")
+            return str(value) if value is not None else None
+        return None

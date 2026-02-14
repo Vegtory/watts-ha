@@ -31,6 +31,7 @@ _ENDPOINT_SMARTHOME_GET_ERRORS = "/api/v0.1/human/smarthome/get_errors/"
 _ENDPOINT_CHECK_LAST_CONNECTION = "/api/v0.1/human/sandbox/check_last_connexion/"
 _ENDPOINT_TIME_OFFSET = "/api/v0.1/human/smarthome/time_offset/"
 _ENDPOINT_CONVERT_PROGRAM = "/api/v0.1/human/sandbox/convert_program/"
+_ENDPOINT_QUERY_CHECK_FAILURE = "/api/v0.1/human/query/check_failure/"
 
 
 class WattsApiError(Exception):
@@ -314,6 +315,13 @@ class WattsApiClient:
     async def async_convert_program(self, payload: Mapping[str, Any]) -> dict[str, Any]:
         """Convert program payload into UI-friendly data."""
         return await self._async_api_post(_ENDPOINT_CONVERT_PROGRAM, payload)
+
+    async def async_check_query_failure(self, smarthome_id: str) -> dict[str, Any]:
+        """Check whether backend reported query execution failures."""
+        return await self._async_api_post(
+            _ENDPOINT_QUERY_CHECK_FAILURE,
+            {"smarthome_id": smarthome_id},
+        )
 
     async def _request(
         self,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
@@ -83,7 +84,7 @@ class WattsModeSelect(WattsDeviceEntity, SelectEntity):
         if nvgv_mode_id is not None:
             updates["nvgv_mode_id"] = nvgv_mode_id
 
-        await self.coordinator.async_push_device_update(
+        first_attempt = await self.coordinator.async_push_device_update(
             self._smarthome_id,
             self._device_id,
             updates,
@@ -98,8 +99,9 @@ class WattsModeSelect(WattsDeviceEntity, SelectEntity):
             return
 
         # Retry with nvgv_mode_id only for backends that ignore gv_mode/nv_mode.
+        second_attempt: dict[str, Any] | None = None
         if nvgv_mode_id is not None:
-            await self.coordinator.async_push_device_update(
+            second_attempt = await self.coordinator.async_push_device_update(
                 self._smarthome_id,
                 self._device_id,
                 {"nvgv_mode_id": nvgv_mode_id},
@@ -107,10 +109,63 @@ class WattsModeSelect(WattsDeviceEntity, SelectEntity):
 
         device = self._device
         if device and str(device.get("gv_mode", "")) != mode_code:
+            check_failure = await self.coordinator.async_check_query_failure(self._smarthome_id)
             _LOGGER.warning(
-                "Watts mode change for %s#%s not yet reflected. target=%s current=%s",
+                "Watts mode change not reflected for %s#%s target=%s current=%s "
+                "first_attempt=%s second_attempt=%s check_failure=%s",
                 self._smarthome_id,
                 self._device_id,
                 mode_code,
                 device.get("gv_mode"),
+                self._summarize_attempts(first_attempt),
+                self._summarize_attempts(second_attempt),
+                self._summarize_check_failure(check_failure),
             )
+
+    @staticmethod
+    def _summarize_attempts(result: dict[str, Any] | None) -> str:
+        """Return compact mode push attempt summary for logs."""
+        if not result:
+            return "none"
+        attempts = result.get("attempts")
+        if not isinstance(attempts, list):
+            return "invalid"
+        parts: list[str] = []
+        for attempt in attempts:
+            if not isinstance(attempt, dict):
+                continue
+            strategy = str(attempt.get("strategy", "?"))
+            query = attempt.get("query", {})
+            if isinstance(query, dict):
+                mode_query = {
+                    "gv_mode": query.get("gv_mode"),
+                    "nv_mode": query.get("nv_mode"),
+                    "nvgv_mode_id": query.get("nvgv_mode_id"),
+                    "id_device": query.get("id_device"),
+                }
+            else:
+                mode_query = {"query": "invalid"}
+
+            if "error" in attempt:
+                parts.append(f"{strategy}:error={attempt.get('error')} query={mode_query}")
+            else:
+                parts.append(
+                    f"{strategy}:code={attempt.get('code')} key={attempt.get('key')} "
+                    f"value={attempt.get('value')} query={mode_query}"
+                )
+        return " | ".join(parts) if parts else "empty"
+
+    @staticmethod
+    def _summarize_check_failure(payload: dict[str, Any]) -> str:
+        """Return compact check_failure summary for logs."""
+        if not isinstance(payload, dict):
+            return "invalid"
+        if "error" in payload:
+            return f"error={payload['error']}"
+        code = payload.get("code")
+        if isinstance(code, dict):
+            return (
+                f"code={code.get('code')} key={code.get('key')} value={code.get('value')} "
+                f"data={payload.get('data')}"
+            )
+        return str(payload)
