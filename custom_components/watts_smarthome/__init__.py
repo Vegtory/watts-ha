@@ -36,6 +36,7 @@ PLATFORMS: list[Platform] = [
     Platform.SENSOR,
     Platform.SELECT,
     Platform.NUMBER,
+    Platform.CLIMATE,
 ]
 
 WEEK_DAYS = (

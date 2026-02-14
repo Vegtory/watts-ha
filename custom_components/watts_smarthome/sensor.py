@@ -31,6 +31,45 @@ from .formatting import (
 _LOGGER = logging.getLogger(__name__)
 
 
+def _get_current_goal_temperature(device_data: dict[str, Any]) -> float | None:
+    """Calculate the current goal temperature based on operating mode and setpoints."""
+    gv_mode = str(device_data.get("gv_mode", ""))
+    
+    # Map modes to their corresponding setpoint fields
+    # 0: Comfort, 1: Off, 2: Frost, 3: Eco, 4: Boost
+    # 8/11/13: Program (uses comfort/eco based on schedule)
+    # 12: On (uses comfort)
+    mode_to_setpoint = {
+        "0": "consigne_confort",  # Comfort
+        "12": "consigne_confort",  # On
+        "2": "consigne_hg",        # Frost
+        "3": "consigne_eco",       # Eco
+        "4": "consigne_boost",     # Boost
+    }
+    
+    # For program modes, we need to check which setpoint is active
+    # In program mode, it alternates between comfort and eco based on schedule
+    # Since we don't have schedule info, return comfort as the active setpoint
+    if gv_mode in ("8", "11", "13"):  # Program modes
+        comfort_temp = decode_setpoint(device_data.get("consigne_confort"))
+        eco_temp = decode_setpoint(device_data.get("consigne_eco"))
+        # Return comfort as default active setpoint, or eco if comfort is not available
+        if comfort_temp is not None:
+            return comfort_temp
+        return eco_temp
+    
+    # For off mode, return None
+    if gv_mode in ("1", "14"):  # Off/Disabled
+        return None
+    
+    # Get the setpoint for the current mode
+    setpoint_field = mode_to_setpoint.get(gv_mode)
+    if setpoint_field:
+        return decode_setpoint(device_data.get(setpoint_field))
+    
+    return None
+
+
 @dataclass
 class WattsSensorEntityDescription(SensorEntityDescription):
     """Describes Watts sensor entity."""
@@ -174,6 +213,15 @@ DEVICE_SENSORS: tuple[WattsSensorEntityDescription, ...] = (
         name="Program",
         icon="mdi:calendar-clock",
         value_fn=lambda dev: dev.get("programme"),
+    ),
+    WattsSensorEntityDescription(
+        key="current_goal_temperature",
+        name="Goal Temperature",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:target",
+        value_fn=lambda dev: _get_current_goal_temperature(dev),
     ),
 )
 
