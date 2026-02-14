@@ -83,6 +83,7 @@ For each heating device/zone:
 - **Floor Temperature** - Current floor temperature (if available)
 - **Comfort Setpoint** - Comfort mode target temperature
 - **Eco Setpoint** - Eco mode target temperature
+- **Goal Temperature** - Current target temperature based on active mode
 - **Heating Status** - Whether the device is actively heating
 - **Error Code** - Device error code (0 = no error)
 - **Operating Mode** - Current device mode
@@ -96,6 +97,12 @@ For each heating device/zone:
 - **Boost Timer Number** (minutes)
 - **Manual Setpoint Number**
 - **Frost Setpoint Number**
+
+#### Climate Entity
+- **Climate Control** - Unified temperature control interface
+  - Shows current air temperature
+  - Setting temperature activates Boost mode with the specified temperature for 1 hour
+  - HVAC modes: Off, Heat (Comfort), Auto (Program)
 
 ## Services
 
