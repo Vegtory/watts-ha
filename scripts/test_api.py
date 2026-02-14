@@ -14,6 +14,7 @@ import json
 import os
 import pathlib
 import sys
+import aiohttp
 
 # Ensure repo root is importable
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -48,8 +49,8 @@ async def main() -> int:
         print("WATTS_USERNAME and WATTS_PASSWORD must be set in .env or environment.", file=sys.stderr)
         return 2
 
-    client = WattsApiClient(username, password)
-    try:
+    async with aiohttp.ClientSession() as session:
+        client = WattsApiClient(session=session, username=username, password=password)
         print("Logging in...")
         token = await client.async_login()
         print("\nTOKEN RESPONSE:\n")
@@ -61,9 +62,6 @@ async def main() -> int:
             print(json.dumps(user, indent=2))
         except Exception as exc:  # pragma: no cover - runtime helper
             print("\nFailed to fetch user data:", exc, file=sys.stderr)
-
-    finally:
-        await client.close()
     return 0
 
 

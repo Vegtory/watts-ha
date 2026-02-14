@@ -45,7 +45,6 @@ import aiohttp  # noqa: E402
 
 from custom_components.watts_smarthome.api import WattsApiClient  # noqa: E402
 from custom_components.watts_smarthome.const import (  # noqa: E402
-    API_BASE_URL,
     DEFAULT_LANG,
 )
 
@@ -101,9 +100,9 @@ async def main() -> int:
         print("WATTS_USERNAME and WATTS_PASSWORD must be set in .env or environment.", file=sys.stderr)
         return 2
 
-    client = WattsApiClient(username, password)
+    async with aiohttp.ClientSession() as session:
+        client = WattsApiClient(session=session, username=username, password=password)
 
-    try:
         # ------------------------------------------------------------------
         # 1. Login  (POST /realms/watts/protocol/openid-connect/token)
         # ------------------------------------------------------------------
@@ -238,23 +237,10 @@ async def main() -> int:
         print("\n── GET endpoints ──")
 
         # GET /api/v0.1/human/smarthome/user_manual/
-        session = await client._ensure_session()
-        try:
-            async with session.get(
-                f'{API_BASE_URL}/api/v0.1/human/smarthome/user_manual/',
-                headers={'Authorization': f'Bearer {client._access_token}'},
-            ) as resp:
-                ct = resp.headers.get('Content-Type', '')
-                if 'json' in ct:
-                    body = await resp.json()
-                else:
-                    body = {'status': resp.status, 'content_type': ct, 'body_preview': (await resp.text())[:500]}
-                write_json('smarthome_user_manual', body)
-        except Exception as exc:
-            write_json('smarthome_user_manual_error', {'error': str(exc)})
-
-    finally:
-        await client.close()
+        await safe_call(
+            'smarthome_user_manual',
+            client._request('GET', '/api/v0.1/human/smarthome/user_manual/'),
+        )
 
     print(f"\nDone – all responses saved in {OUT_DIR}/")
     return 0

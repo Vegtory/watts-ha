@@ -1,0 +1,33 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Watts SmartHome",
+        "description": "Enter your Watts SmartHome credentials.",
+        "data": {
+          "username": "Email",
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to Watts SmartHome API.",
+      "invalid_auth": "Invalid username or password.",
+      "unknown": "Unexpected error."
+    },
+    "abort": {
+      "already_configured": "This account is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Watts SmartHome options",
+        "data": {
+          "scan_interval": "Polling interval (seconds)",
+          "lang": "Language code"
+        }
+      }
+    }
+  }
+}

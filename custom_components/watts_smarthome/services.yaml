@@ -1,0 +1,11 @@
+update_now:
+  name: Refresh data now
+  description: Trigger an immediate data refresh for all Watts entries, or one specific entry.
+  fields:
+    entry_id:
+      name: Config entry id
+      description: Optional config entry id to refresh only one account.
+      required: false
+      example: "7ee8f11f5b1887af9fd79a6704bc77de"
+      selector:
+        text:
