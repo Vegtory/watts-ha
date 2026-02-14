@@ -13,6 +13,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import DEFAULT_MAX_TEMP_C, DEFAULT_MIN_TEMP_C, DOMAIN
 from .entity import WattsDeviceEntity
 from .helpers import as_int, celsius_to_raw, raw_to_celsius
+from . import WattsRuntimeData
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -56,7 +57,8 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Watts number entities."""
-    coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    runtime: WattsRuntimeData = hass.data[DOMAIN][entry.entry_id]
+    coordinator = runtime.coordinator
 
     entities: list[NumberEntity] = []
     for smarthome_id, device_id in coordinator.iter_device_keys():

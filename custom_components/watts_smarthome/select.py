@@ -9,6 +9,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, MODE_CODE_TO_OPTION, MODE_OPTION_TO_CODE
 from .entity import WattsDeviceEntity
+from . import WattsRuntimeData
 
 MODE_OPTIONS = list(MODE_OPTION_TO_CODE)
 
@@ -19,7 +20,8 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Watts mode select entities."""
-    coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    runtime: WattsRuntimeData = hass.data[DOMAIN][entry.entry_id]
+    coordinator = runtime.coordinator
 
     entities: list[WattsModeSelect] = []
     for smarthome_id, device_id in coordinator.iter_device_keys():
