@@ -49,16 +49,14 @@ def _get_current_goal_temperature(device_data: dict[str, Any]) -> float | None:
     
     # For program modes, we need to check which setpoint is active
     # In program mode, it alternates between comfort and eco based on schedule
-    # Since we don't have schedule info, use the higher of comfort/eco as a reasonable default
+    # Since we don't have schedule info, return comfort as the active setpoint
     if gv_mode in ("8", "11", "13"):  # Program modes
         comfort_temp = decode_setpoint(device_data.get("consigne_confort"))
         eco_temp = decode_setpoint(device_data.get("consigne_eco"))
-        # Return whichever is set, or comfort if both are set
-        if comfort_temp is not None and eco_temp is not None:
-            # In program mode, we can't determine which is active without schedule
-            # Return comfort as default active setpoint
+        # Return comfort as default active setpoint, or eco if comfort is not available
+        if comfort_temp is not None:
             return comfort_temp
-        return comfort_temp or eco_temp
+        return eco_temp
     
     # For off mode, return None
     if gv_mode in ("1", "14"):  # Off/Disabled

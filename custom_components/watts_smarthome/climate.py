@@ -30,7 +30,7 @@ WATTS_TO_HVAC_MODE = {
     "1": HVACMode.OFF,       # Off
     "14": HVACMode.OFF,      # Disabled
     "2": HVACMode.HEAT,      # Frost (still heating, just at low temp)
-    "3": HVACMode.AUTO,      # Eco (automated energy saving)
+    "3": HVACMode.HEAT,      # Eco (constant heating at lower setpoint)
     "4": HVACMode.HEAT,      # Boost (high heat)
     "8": HVACMode.AUTO,      # Program
     "11": HVACMode.AUTO,     # Auto Eco
