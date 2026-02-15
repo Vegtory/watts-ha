@@ -1,0 +1,10 @@
+{
+  "domain": "watts_smarthome",
+  "name": "Watts SmartHome",
+  "version": "0.1.0",
+  "config_flow": true,
+  "iot_class": "cloud_polling",
+  "homeassistant": "2023.8.0",
+  "requirements": [],
+  "loggers": ["custom_components.watts_smarthome"]
+}

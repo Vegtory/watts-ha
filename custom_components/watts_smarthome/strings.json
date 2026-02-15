@@ -1,0 +1,73 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect Watts SmartHome",
+        "description": "Set up your Watts account credentials.",
+        "data": {
+          "username": "Email",
+          "password": "Password",
+          "lang": "Language",
+          "scan_interval": "Polling interval (seconds)"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Invalid authentication",
+      "cannot_connect": "Failed to connect",
+      "unknown": "Unexpected error"
+    },
+    "abort": {
+      "already_configured": "Account is already configured"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Watts options",
+        "data": {
+          "lang": "Language",
+          "scan_interval": "Polling interval (seconds)"
+        }
+      }
+    }
+  },
+  "entity": {
+    "select": {
+      "mode_selection": {
+        "name": "Mode selection"
+      }
+    },
+    "number": {
+      "setpoint_comfort": {
+        "name": "Setpoint comfort"
+      },
+      "setpoint_eco": {
+        "name": "Setpoint eco"
+      },
+      "setpoint_anti_frost": {
+        "name": "Setpoint anti-frost"
+      },
+      "setpoint_boost": {
+        "name": "Setpoint boost"
+      },
+      "boost_timer": {
+        "name": "Boost timer"
+      }
+    },
+    "sensor": {
+      "current_air_temperature": {
+        "name": "Current air temperature"
+      },
+      "heating_status": {
+        "name": "Heating status"
+      },
+      "error_code": {
+        "name": "Error code"
+      },
+      "operating_mode": {
+        "name": "Operating mode"
+      }
+    }
+  }
+}
