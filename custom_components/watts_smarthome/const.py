@@ -21,6 +21,11 @@ REQUEST_TOKEN_LITERAL = "true"
 REQUEST_CONTEXT = "1"
 REQUEST_PEREMPTION_MS = "15000"
 
+# After sending a write command, poll faster for a short window to pick up
+# device-side state changes sooner.
+POST_WRITE_FAST_POLL_INTERVAL_SECONDS = 15
+POST_WRITE_FAST_POLL_DURATION_SECONDS = 5 * 60
+
 # Watts API temperatures/setpoints are observed as deci-Fahrenheit values
 # (for example: 446 = 44.6F = 7.0C anti-frost).
 RAW_TEMPERATURE_DECI_SCALE = 10.0

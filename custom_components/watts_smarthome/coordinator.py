@@ -6,6 +6,7 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from datetime import timedelta
 import logging
+import time
 
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
@@ -13,6 +14,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from homeassistant.config_entries import ConfigEntryAuthFailed
 
 from .api import WattsApiClient, WattsApiError, WattsAuthError, WattsConnectionError
+from .const import POST_WRITE_FAST_POLL_DURATION_SECONDS, POST_WRITE_FAST_POLL_INTERVAL_SECONDS
 from .models import (
     WattsDevice,
     WattsState,
@@ -45,9 +47,16 @@ class WattsDataUpdateCoordinator(DataUpdateCoordinator[WattsState]):
         )
         self.client = client
         self.lang = lang
+        self._normal_update_interval = timedelta(seconds=scan_interval_seconds)
+        self._fast_update_interval = timedelta(
+            seconds=min(scan_interval_seconds, POST_WRITE_FAST_POLL_INTERVAL_SECONDS)
+        )
+        self._fast_poll_until: float | None = None
+        self._refresh_poll_mode()
 
     async def _async_update_data(self) -> WattsState:
         """Fetch all data from Watts and map it into domain models."""
+        self._refresh_poll_mode()
         try:
             user_payload = await self.client.async_get_user_data(lang=self.lang)
 
@@ -86,6 +95,8 @@ class WattsDataUpdateCoordinator(DataUpdateCoordinator[WattsState]):
             raise UpdateFailed(str(err)) from err
         except WattsApiError as err:
             raise UpdateFailed(str(err)) from err
+        finally:
+            self._refresh_poll_mode()
 
     def get_device(self, smarthome_id: str, id_device: str) -> WattsDevice:
         """Return one device from coordinator state."""
@@ -143,6 +154,7 @@ class WattsDataUpdateCoordinator(DataUpdateCoordinator[WattsState]):
             )
 
         await self._wrap_write(_do_push)
+        self._enable_fast_poll_window()
         await self.async_request_refresh()
 
     async def _wrap_write(self, action: Callable[[], Awaitable[None]]) -> None:
@@ -153,3 +165,25 @@ class WattsDataUpdateCoordinator(DataUpdateCoordinator[WattsState]):
             raise ConfigEntryAuthFailed from err
         except (WattsConnectionError, WattsApiError) as err:
             raise HomeAssistantError(str(err)) from err
+
+    def _enable_fast_poll_window(self) -> None:
+        """Enable temporary fast polling after a write."""
+        self._fast_poll_until = time.monotonic() + POST_WRITE_FAST_POLL_DURATION_SECONDS
+        self._refresh_poll_mode()
+
+    def _refresh_poll_mode(self) -> None:
+        """Switch poll interval between normal and temporary fast mode."""
+        now = time.monotonic()
+        fast_mode_active = (
+            self._fast_poll_until is not None
+            and now < self._fast_poll_until
+            and self._fast_update_interval < self._normal_update_interval
+        )
+
+        target_interval = self._fast_update_interval if fast_mode_active else self._normal_update_interval
+        if not fast_mode_active:
+            self._fast_poll_until = None
+
+        if self.update_interval != target_interval:
+            self.update_interval = target_interval
+            _LOGGER.debug("Set Watts polling interval to %s", target_interval)
