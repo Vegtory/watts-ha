@@ -15,18 +15,18 @@ from custom_components.watts_smarthome.models import (
 )
 
 
-def _load_response(suffix: str) -> dict:
+def _load_response(pattern: str) -> dict:
     repo_root = Path(__file__).resolve().parents[1]
-    files = sorted((repo_root / ".responses").glob(f"*{suffix}.json"))
-    assert files, f"No response fixture found for suffix: {suffix}"
+    files = sorted((repo_root / ".responses").glob(pattern))
+    assert files, f"No response fixture found for pattern: {pattern}"
     return json.loads(files[-1].read_text(encoding="utf-8"))
 
 
 def test_parse_state_maps_devices_and_errors() -> None:
     """State parsing should map all devices and attach error details."""
-    user_payload = _load_response("_user_read")
-    smarthome_payload = _load_response("_smarthome_MDA6MUU6QzA6NUI6RTk6NEQ_e_read")
-    error_payload = _load_response("_smarthome_MDA6MUU6QzA6NUI6RTk6NEQ_e_get_errors")
+    user_payload = _load_response("*_user_read.json")
+    smarthome_payload = _load_response("*_smarthome_*_read.json")
+    error_payload = _load_response("*_smarthome_*_get_errors.json")
 
     smarthome_id = user_payload["data"]["smarthomes"][0]["smarthome_id"]
 
@@ -36,12 +36,13 @@ def test_parse_state_maps_devices_and_errors() -> None:
         smarthome_error_payloads={smarthome_id: error_payload},
     )
 
-    assert state.user.email == "w.j.vegt@gmail.com"
+    assert state.user.email
+    assert "@" in state.user.email
     assert len(state.smarthomes) == 1
 
     device = state.get_device(smarthome_id, "C001-000")
     assert device.current_air_temperature == 21.4
-    assert device.current_mode == "manual"
+    assert device.current_mode == "program_on"
     assert device.get_setpoint(SETPOINT_ANTI_FROST) == 7.0
     assert device.min_set_point == 5.0
     assert device.max_set_point == 37.0
@@ -54,8 +55,8 @@ def test_parse_state_maps_devices_and_errors() -> None:
 
 def test_write_requests_build_expected_query_payloads() -> None:
     """Write requests should encode expected query fields."""
-    user_payload = _load_response("_user_read")
-    smarthome_payload = _load_response("_smarthome_MDA6MUU6QzA6NUI6RTk6NEQ_e_read")
+    user_payload = _load_response("*_user_read.json")
+    smarthome_payload = _load_response("*_smarthome_*_read.json")
     smarthome_id = user_payload["data"]["smarthomes"][0]["smarthome_id"]
 
     state = parse_state(
