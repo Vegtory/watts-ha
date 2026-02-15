@@ -167,16 +167,17 @@ class WattsBoostTimerNumber(WattsDeviceEntity, NumberEntity):
     def native_max_value(self) -> float:
         """Return a permissive max value for boost timer in minutes."""
         max_seconds = max(14400, self.device.time_boost_seconds, 7200)
-        return float(max_seconds / 60)
+        return float(round(max_seconds / 60))
 
     @property
     def native_value(self) -> float:
         """Return current boost duration in minutes."""
-        return float(self.device.time_boost_seconds / 60)
+        return float(round(self.device.time_boost_seconds / 60))
 
     async def async_set_native_value(self, value: float) -> None:
         """Set boost timer in minutes."""
-        value_seconds = int(round(value * 60))
+        whole_minutes = int(round(value))
+        value_seconds = whole_minutes * 60
         await self.coordinator.async_set_boost_timer(
             self._smarthome_id,
             self._id_device,
