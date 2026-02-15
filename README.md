@@ -1,5 +1,9 @@
 # Watts SmartHome for Home Assistant
 
+![Watts logo](custom_components/watts_smarthome/logo.svg)
+
+Version: `v0.0.1`
+
 Custom HACS integration for Watts Electronics SmartHome thermostats.
 
 ## Features
