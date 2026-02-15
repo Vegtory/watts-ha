@@ -7,13 +7,16 @@ from typing import Any
 
 from .const import (
     BOOST_TIMER,
+    CELSIUS_TO_FAHRENHEIT_FACTOR,
+    FAHRENHEIT_OFFSET,
+    FAHRENHEIT_TO_CELSIUS_FACTOR,
     HEATING_ACTIVE,
     HEATING_IDLE,
     MODE_BOOST,
     MODE_CODE_TO_OPTION,
     MODE_OPTION_TO_CODE,
     MODE_UNKNOWN,
-    RAW_TEMPERATURE_FACTOR,
+    RAW_TEMPERATURE_DECI_SCALE,
     SETPOINT_ANTI_FROST,
     SETPOINT_BOOST,
     SETPOINT_BY_MODE,
@@ -49,12 +52,15 @@ def raw_to_celsius(raw_value: str | int | None) -> float | None:
     raw_int = _as_int(raw_value)
     if raw_int is None:
         return None
-    return round(raw_int / RAW_TEMPERATURE_FACTOR, 1)
+    fahrenheit_value = raw_int / RAW_TEMPERATURE_DECI_SCALE
+    celsius_value = (fahrenheit_value - FAHRENHEIT_OFFSET) * FAHRENHEIT_TO_CELSIUS_FACTOR
+    return round(celsius_value, 1)
 
 
 def celsius_to_raw(temperature: float) -> int:
     """Convert Celsius value to Watts raw temperature."""
-    return int(round(temperature * RAW_TEMPERATURE_FACTOR))
+    fahrenheit_value = (temperature * CELSIUS_TO_FAHRENHEIT_FACTOR) + FAHRENHEIT_OFFSET
+    return int(round(fahrenheit_value * RAW_TEMPERATURE_DECI_SCALE))
 
 
 @dataclass(frozen=True, slots=True)

@@ -21,7 +21,12 @@ REQUEST_TOKEN_LITERAL = "true"
 REQUEST_CONTEXT = "1"
 REQUEST_PEREMPTION_MS = "15000"
 
-RAW_TEMPERATURE_FACTOR = 30.0
+# Watts API temperatures/setpoints are observed as deci-Fahrenheit values
+# (for example: 446 = 44.6F = 7.0C anti-frost).
+RAW_TEMPERATURE_DECI_SCALE = 10.0
+FAHRENHEIT_OFFSET = 32.0
+FAHRENHEIT_TO_CELSIUS_FACTOR = 5.0 / 9.0
+CELSIUS_TO_FAHRENHEIT_FACTOR = 9.0 / 5.0
 
 MODE_COMFORT = "comfort"
 MODE_OFF = "off"

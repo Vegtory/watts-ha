@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from custom_components.watts_smarthome.const import MODE_BOOST, SETPOINT_COMFORT
+from custom_components.watts_smarthome.const import MODE_BOOST, SETPOINT_ANTI_FROST, SETPOINT_COMFORT
 from custom_components.watts_smarthome.models import (
     build_boost_timer_write_request,
     build_mode_write_request,
@@ -40,8 +40,11 @@ def test_parse_state_maps_devices_and_errors() -> None:
     assert len(state.smarthomes) == 1
 
     device = state.get_device(smarthome_id, "C001-000")
-    assert device.current_air_temperature == 23.5
+    assert device.current_air_temperature == 21.4
     assert device.current_mode == "manual"
+    assert device.get_setpoint(SETPOINT_ANTI_FROST) == 7.0
+    assert device.min_set_point == 5.0
+    assert device.max_set_point == 37.0
 
     errored = state.get_device(smarthome_id, "C004-003")
     assert errored.current_mode == "eco"

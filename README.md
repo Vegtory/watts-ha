@@ -31,7 +31,7 @@ Custom HACS integration for Watts Electronics SmartHome thermostats.
 - `number`: setpoint eco
 - `number`: setpoint anti-frost
 - `number`: setpoint boost
-- `number`: boost timer (seconds)
+- `number`: boost timer (minutes)
 
 ### Sensors
 
