@@ -1,6 +1,6 @@
 # Watts SmartHome for Home Assistant
 
-![Watts logo](custom_components/watts_smarthome/logo.svg)
+<img src="custom_components/watts_smarthome/logo.svg" alt="Watts SmartHome integration icon" width="128">
 
 Custom HACS integration for Watts Electronics SmartHome thermostats (cloud).
 
@@ -84,6 +84,7 @@ Changes are refused while holiday mode is active, like in the app.
 3. **Settings → Devices & Services → Add Integration → Watts SmartHome**, then sign in with your Watts account.
 
 Requires Home Assistant 2025.1 or newer.
+The integration icon in Home Assistant (light and dark, in `brand/`) shows from Home Assistant 2026.3.
 
 ## Options
 

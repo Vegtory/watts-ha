@@ -1,4 +1,23 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="Watts logo">
-  <title>Watts logo</title>
-  <path d="M80 96L146 416L256 188L366 416L432 96" fill="none" stroke="#1E63E9" stroke-linecap="round" stroke-linejoin="round" stroke-width="52"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="24 7 464 464" role="img" aria-label="Watts SmartHome integration icon">
+  <title>Watts SmartHome integration icon</title>
+  <defs>
+    <linearGradient id="dial" x1="56" y1="0" x2="456" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#14B8A6"/>
+      <stop offset="0.5" stop-color="#F5B014"/>
+      <stop offset="1" stop-color="#F2551D"/>
+    </linearGradient>
+  </defs>
+  <!-- Thermostat dial: eco (teal) to comfort (orange) -->
+  <path d="M114.6 397.4 A200 200 0 1 1 397.4 397.4" fill="none" stroke="url(#dial)" stroke-width="44" stroke-linecap="round"/>
+  <!-- Setpoint knob -->
+  <circle cx="429.2" cy="156" r="36" fill="#F2551D" stroke="#1E293B" stroke-width="16"/>
+  <g transform="translate(256 286) scale(1.32) translate(-256 -261)">
+    <!-- House -->
+    <path d="M166 246 L256 168 L346 246 M190 228 V352 H322 V228" fill="none" stroke="#1E293B" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- Heat waves -->
+    <g fill="none" stroke="#F2551D" stroke-width="19" stroke-linecap="round">
+      <path d="M228 328 q-14 -14 0 -30 q14 -16 0 -32"/>
+      <path d="M284 328 q-14 -14 0 -30 q14 -16 0 -32"/>
+    </g>
+  </g>
 </svg>
