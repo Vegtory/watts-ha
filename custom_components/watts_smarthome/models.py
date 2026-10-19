@@ -16,6 +16,7 @@ from .const import (
     FIELD_GV_MODE,
     FIELD_ID_DEVICE,
     FIELD_NV_MODE,
+    FIELD_PROGRAMME,
     HEATING_ACTIVE,
     HEATING_IDLE,
     MAX_BOOST_SECONDS,
@@ -46,7 +47,7 @@ _UNSET_HOLIDAY_DATES = {"", "null", "0000-00-00 00:00:00", "1970-01-01 00:00:00"
 _HOLIDAY_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 # Raw fields we expect smarthome/read to echo back after a successful write.
-TRACKED_WRITE_FIELDS: frozenset[str] = frozenset({FIELD_GV_MODE, *SETPOINT_KEYS})
+TRACKED_WRITE_FIELDS: frozenset[str] = frozenset({FIELD_GV_MODE, FIELD_PROGRAMME, *SETPOINT_KEYS})
 
 
 def _as_str(value: Any) -> str:
@@ -219,6 +220,7 @@ class WattsDevice:
     setpoints_raw: Mapping[str, int]
     errors: tuple[WattsDeviceError, ...] = ()
     schedule: tuple[str, ...] | None = None
+    programme: str = ""
 
     @property
     def display_name(self) -> str:
@@ -308,6 +310,8 @@ class WattsDevice:
             return self.gv_mode
         if name == FIELD_NV_MODE:
             return self.nv_mode
+        if name == FIELD_PROGRAMME:
+            return self.programme
         if name == BOOST_TIMER:
             return str(self.time_boost_seconds)
         value = self.setpoints_raw.get(name)
@@ -322,6 +326,9 @@ class WattsDevice:
                 changes["gv_mode"] = value
             elif name == FIELD_NV_MODE:
                 changes["nv_mode"] = value
+            elif name == FIELD_PROGRAMME:
+                changes["programme"] = value
+                changes["schedule"] = decode_schedule(value)
             elif name in (*SETPOINT_KEYS, SETPOINT_MANUAL):
                 parsed = _as_int(value)
                 if parsed is not None:
@@ -454,7 +461,8 @@ def _parse_device(raw_device: Mapping[str, Any], smarthome_id: str, zone: WattsZ
         max_set_point_raw=_as_int(raw_device.get("max_set_point")),
         time_boost_seconds=_as_int(raw_device.get(BOOST_TIMER)) or 0,
         setpoints_raw=setpoints_raw,
-        schedule=decode_schedule(_as_str(raw_device.get("programme"))),
+        schedule=decode_schedule(_as_str(raw_device.get(FIELD_PROGRAMME))),
+        programme=_as_str(raw_device.get(FIELD_PROGRAMME)),
     )
 
 

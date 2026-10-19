@@ -26,9 +26,7 @@ Per thermostat:
 - **Auto (schedule):** there is no temperature dial, because the schedule switches between the comfort
   and eco temperatures (the Watts app works the same way). The thermostat shows what the schedule is doing:
   `schedule_period` / `schedule_temperature` (now) and `next_change` / `next_period` / `next_temperature`
-  (next switch). The schedule itself is edited in the Watts app. To run the schedule in Home Assistant
-  instead, keep the thermostat in Heat and switch the Comfort/Eco presets with a Schedule helper and an
-  automation.
+  (next switch). Change the schedule with the `set_schedule` action (below) or in the Watts app.
 - **Temperatures** use 0.5 °C steps, like the thermostat. Values from automations are rounded to the
   nearest 0.5 °C.
 - **To set a temperature:** choose **Heat**, which starts in Comfort, then turn the dial. The dial changes the
@@ -48,6 +46,71 @@ Per thermostat:
 
 - If a change does not reach the thermostat, Home Assistant shows a notification naming the room and the
   change, and the thermostat shows its previous settings again.
+
+### Weekly schedule actions
+
+Read and change the schedule a thermostat follows in Auto mode. Both actions use the same format: per day, the
+**comfort** periods; all other times run at eco.
+
+```yaml
+action: watts_smarthome.get_schedule
+target:
+  entity_id: climate.living_room
+# response:
+#   climate.living_room:
+#     schedule:
+#       monday: [{start: "16:00", end: "21:30"}]
+#       ...
+#     comfort_temperature: 19.5
+#     eco_temperature: 18.0
+```
+
+```yaml
+action: watts_smarthome.set_schedule
+target:
+  entity_id: climate.living_room
+data:
+  monday:
+    - {start: "06:30", end: "08:00"}
+    - {start: "17:00", end: "22:00"}
+  sunday: []          # whole day eco
+  # days left out keep their current schedule
+```
+
+- Times are `HH:MM` in 15-minute steps; `"00:00"` as end means midnight. Quote the times in YAML.
+- Invalid input is refused with a message saying what to fix (for example overlapping periods).
+- `set_schedule` returns the previous and the new schedule, and logs the previous one before writing,
+  so it can be restored.
+- The new schedule shows at once and is confirmed by reading it back; if the thermostat does not report it,
+  a notification appears.
+
+**For AI agents:** both actions carry descriptions an agent can read (Developer tools → Actions, or the
+services API), and `get_schedule` returns exactly what `set_schedule` accepts: read, edit, send back.
+Home Assistant's built-in Assist/LLM integration only offers exposed scripts, not actions. To let Assist
+change schedules, expose a script like this one:
+
+```yaml
+alias: Set Watts schedule
+description: >-
+  Change the weekly heating schedule of a Watts thermostat. Each day takes the comfort periods
+  as blocks with start and end (HH:MM, 15-minute steps); other times are eco. Days left out keep
+  their schedule.
+fields:
+  thermostat:
+    description: The climate entity, for example climate.living_room
+    required: true
+    selector: {entity: {integration: watts_smarthome, domain: climate}}
+  days:
+    description: >-
+      Mapping of day (monday..sunday) to a list of blocks, for example
+      {"monday": [{"start": "06:30", "end": "08:00"}]}
+    required: true
+    selector: {object: {}}
+sequence:
+  - action: watts_smarthome.set_schedule
+    target: {entity_id: "{{ thermostat }}"}
+    data: "{{ days }}"
+```
 
 Per central unit:
 

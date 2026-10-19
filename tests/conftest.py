@@ -15,6 +15,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.watts_smarthome import coordinator as coordinator_module
 from custom_components.watts_smarthome.api import WattsConnectionStatus, WattsFailureCheck
 from custom_components.watts_smarthome.const import DOMAIN
+from custom_components.watts_smarthome.schedule import encode_programme
 
 FIXTURES = Path(__file__).parent / "fixtures"
 SMARTHOME_ID = "SH_TEST_1"
@@ -62,6 +63,7 @@ class FakeWattsClient:
         self.fail_next_command = False
         self.apply_pushes = True
         self.pushes: list[dict[str, Any]] = []
+        self.programs: list[dict[str, Any]] = []
         self.calls: list[str] = []
         self.login_error: Exception | None = None
         self.read_error: Exception | None = None
@@ -106,6 +108,13 @@ class FakeWattsClient:
             self.apply(query)
         return {"code": {"code": "8", "key": "OK_SET"}}
 
+    async def async_apply_program(self, smarthome_id: str, id_device: str, form: dict[str, str], **kwargs: Any):
+        self.calls.append("apply_program")
+        self.programs.append({"id_device": id_device, "form": dict(form), **kwargs})
+        if self.apply_pushes:
+            self.apply({"id_device": id_device, "programme": programme_from_form(form)})
+        return {"code": {"code": "8", "key": "OK_SET"}}
+
     def apply(self, query: dict[str, str]) -> None:
         """Make the next read return the pushed values (what the cloud does)."""
         data = self.read["data"]
@@ -114,6 +123,27 @@ class FakeWattsClient:
                 for key, value in query.items():
                     if key not in ("id_device", "time_boost"):
                         device[key] = value
+
+
+def programme_from_form(form: dict[str, str]) -> str:
+    """Turn device/apply_program form fields back into a programme string (what the cloud stores)."""
+    day_index = {"Mon": 0, "Tue": 1, "Wed": 2, "Thu": 3, "Fri": 4, "Sat": 5, "Sun": 6}
+    slots = ["eco"] * (7 * 96)
+    for key, value in form.items():
+        if not key.endswith("[value]") or value != "comfort":
+            continue
+        prefix = key[: -len("[value]")]
+        day = day_index[key.split("[")[1].rstrip("]")]
+        start = _minutes(form[f"{prefix}[start]"])
+        end = _minutes(form[f"{prefix}[end]"]) or 24 * 60
+        for slot in range(start // 15, end // 15):
+            slots[day * 96 + slot] = "comfort"
+    return encode_programme(slots)
+
+
+def _minutes(text: str) -> int:
+    hours, minutes = text.split(":")
+    return int(hours) * 60 + int(minutes)
 
 
 @pytest.fixture

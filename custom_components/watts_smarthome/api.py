@@ -339,3 +339,23 @@ class WattsApiClient:
             payload[f"query[{key}]"] = str(value)
 
         return await self._request("/api/v0.1/human/query/push/", data=payload)
+
+    async def async_apply_program(
+        self,
+        smarthome_id: str,
+        id_device: str,
+        program_form: Mapping[str, str],
+        *,
+        lang: str | None = None,
+        peremption_ms: int = PEREMPTION_STEPS_MS[0],
+    ) -> dict[str, Any]:
+        """Replace a device's weekly schedule (device/apply_program, as the app sends it)."""
+        payload: dict[str, str] = {
+            "token": REQUEST_TOKEN_LITERAL,
+            "device_id": f"{smarthome_id}#{id_device}",
+            "peremption": str(peremption_ms),
+            **program_form,
+            "new": "true",
+            "lang": self._lang(lang),
+        }
+        return await self._request("/api/v0.1/human/device/apply_program/", data=payload)

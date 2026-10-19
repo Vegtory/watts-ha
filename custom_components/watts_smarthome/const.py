@@ -103,6 +103,7 @@ ALL_MODES: tuple[str, ...] = tuple(MODE_CODE_TO_OPTION.values())
 FIELD_ID_DEVICE = "id_device"
 FIELD_GV_MODE = "gv_mode"
 FIELD_NV_MODE = "nv_mode"
+FIELD_PROGRAMME = "programme"
 SETPOINT_COMFORT = "consigne_confort"
 SETPOINT_ECO = "consigne_eco"
 SETPOINT_ANTI_FROST = "consigne_hg"

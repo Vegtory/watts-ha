@@ -214,6 +214,76 @@
     },
     "target_in_schedule": {
       "message": "The schedule sets the temperature from the Comfort and Eco settings. Switch to Heat to set a temperature, or change the Comfort or Eco temperature."
+    },
+    "schedule_unavailable": {
+      "message": "The Watts cloud did not send a schedule for this thermostat."
+    },
+    "schedule_bad_time": {
+      "message": "{day}: \"{time}\" is not a valid time. Use HH:MM, for example \"06:30\"."
+    },
+    "schedule_not_quarter": {
+      "message": "{day}: {time} is not on a 15-minute step (use :00, :15, :30 or :45)."
+    },
+    "schedule_bad_block": {
+      "message": "{day}: each period needs a start and an end time."
+    },
+    "schedule_end_before_start": {
+      "message": "{day}: the period {start}-{end} ends before it starts. Use \"00:00\" as the end for midnight."
+    },
+    "schedule_overlap": {
+      "message": "{day}: periods overlap at {time}."
+    },
+    "schedule_bad_day": {
+      "message": "Unknown day: {day}. Use monday to sunday."
+    },
+    "schedule_empty": {
+      "message": "Give at least one day to change."
+    },
+    "schedule_need_full_week": {
+      "message": "The current schedule is unknown, so give all seven days."
+    },
+    "schedule_unsupported_period": {
+      "message": "The current schedule contains periods other than comfort and eco, which this integration cannot write back. Change the whole week in the Watts app first."
+    }
+  },
+  "services": {
+    "get_schedule": {
+      "name": "Get schedule",
+      "description": "Returns the weekly schedule of Watts thermostats. For each day (monday to sunday) it lists the comfort periods as blocks with start and end (HH:MM); all other times run at eco. Also returns the comfort and eco temperatures. The result has the same format that Set schedule accepts, so you can read a schedule, change it and send it back."
+    },
+    "set_schedule": {
+      "name": "Set schedule",
+      "description": "Changes the weekly schedule of Watts thermostats, as the Watts app does. Give the comfort periods for each day you want to change; days you leave out keep their current schedule. Times outside the periods run at eco. The thermostat follows the schedule in Auto mode. The change is checked by reading the schedule back, and a notification appears if it does not apply. Returns the previous and the new schedule.",
+      "fields": {
+        "monday": {
+          "name": "Monday",
+          "description": "Comfort periods for Monday, as a list of blocks with start and end times (HH:MM, quoted, in 15-minute steps; end \"00:00\" means midnight). All other times run at the eco temperature. An empty list makes the whole day eco. Leave the field out to keep the day as it is."
+        },
+        "tuesday": {
+          "name": "Tuesday",
+          "description": "Comfort periods for Tuesday, as a list of blocks with start and end times (HH:MM, quoted, in 15-minute steps; end \"00:00\" means midnight). All other times run at the eco temperature. An empty list makes the whole day eco. Leave the field out to keep the day as it is."
+        },
+        "wednesday": {
+          "name": "Wednesday",
+          "description": "Comfort periods for Wednesday, as a list of blocks with start and end times (HH:MM, quoted, in 15-minute steps; end \"00:00\" means midnight). All other times run at the eco temperature. An empty list makes the whole day eco. Leave the field out to keep the day as it is."
+        },
+        "thursday": {
+          "name": "Thursday",
+          "description": "Comfort periods for Thursday, as a list of blocks with start and end times (HH:MM, quoted, in 15-minute steps; end \"00:00\" means midnight). All other times run at the eco temperature. An empty list makes the whole day eco. Leave the field out to keep the day as it is."
+        },
+        "friday": {
+          "name": "Friday",
+          "description": "Comfort periods for Friday, as a list of blocks with start and end times (HH:MM, quoted, in 15-minute steps; end \"00:00\" means midnight). All other times run at the eco temperature. An empty list makes the whole day eco. Leave the field out to keep the day as it is."
+        },
+        "saturday": {
+          "name": "Saturday",
+          "description": "Comfort periods for Saturday, as a list of blocks with start and end times (HH:MM, quoted, in 15-minute steps; end \"00:00\" means midnight). All other times run at the eco temperature. An empty list makes the whole day eco. Leave the field out to keep the day as it is."
+        },
+        "sunday": {
+          "name": "Sunday",
+          "description": "Comfort periods for Sunday, as a list of blocks with start and end times (HH:MM, quoted, in 15-minute steps; end \"00:00\" means midnight). All other times run at the eco temperature. An empty list makes the whole day eco. Leave the field out to keep the day as it is."
+        }
+      }
     }
   }
 }

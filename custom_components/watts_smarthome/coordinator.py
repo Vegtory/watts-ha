@@ -36,7 +36,7 @@ from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError, 
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
-from .api import WattsApiClient, WattsApiError, WattsAuthError, WattsConnectionError, WattsError
+from .api import WattsApiClient, WattsAuthError, WattsError
 from .const import (
     CHECK_FAILURE_MARGIN_SECONDS,
     CONFIRM_RETRY_INTERVAL_SECONDS,
@@ -45,10 +45,13 @@ from .const import (
     DEFAULT_BOOST_SECONDS,
     DOMAIN,
     FIELD_ID_DEVICE,
+    FIELD_PROGRAMME,
     MAX_CENTRAL_SILENCE_SECONDS,
     MODE_LABELS,
     PEREMPTION_STEPS_MS,
     POST_WRITE_QUIET_SECONDS,
+    SETPOINT_COMFORT,
+    SETPOINT_ECO,
     SETPOINT_KEYS,
     SETPOINT_LABELS,
     SETPOINT_MANUAL,
@@ -68,6 +71,13 @@ from .models import (
     mode_from_code,
     parse_state,
     raw_to_celsius,
+)
+from .schedule import (
+    ScheduleError,
+    build_apply_program_form,
+    encode_programme,
+    merge_week,
+    slots_to_week_blocks,
 )
 
 if TYPE_CHECKING:
@@ -111,6 +121,7 @@ class SmarthomeSyncState:
     seconds_since_contact: int | None = None
     verify_task: asyncio.Task[None] | None = None
     verify_due: float = 0.0
+    query_pushed: bool = False
     status: CommandStatus = "idle"
     last_push_at: float | None = None
     last_failure: dict[str, Any] | None = None
@@ -438,21 +449,11 @@ class WattsDataUpdateCoordinator(DataUpdateCoordinator[WattsState]):
                 await self.client.async_push_query(
                     smarthome_id, queued.query, lang=self.lang, peremption_ms=peremption_ms
                 )
-            except WattsAuthError as err:
-                error = HomeAssistantError(translation_domain=DOMAIN, translation_key="auth_failed")
-                error.__cause__ = err
-                self.config_entry.async_start_reauth(self.hass)
-            except (WattsConnectionError, WattsApiError) as err:
-                error = HomeAssistantError(
-                    translation_domain=DOMAIN,
-                    translation_key="command_failed",
-                    translation_placeholders={"error": str(err)},
-                )
-                error.__cause__ = err
-            except HomeAssistantError as err:
-                error = err
+            except (WattsError, HomeAssistantError) as err:
+                error = self._write_error(err)
             else:
                 now = time.monotonic()
+                sync.query_pushed = True
                 sync.status = "sent"
                 sync.last_push_at = now
                 sync.quiet_until = now + POST_WRITE_QUIET_SECONDS
@@ -474,6 +475,87 @@ class WattsDataUpdateCoordinator(DataUpdateCoordinator[WattsState]):
                 waiter.set_result(None)
             else:
                 waiter.set_exception(error)
+
+    def _write_error(self, err: Exception) -> HomeAssistantError:
+        """Map a write failure to the error shown to the user."""
+        if isinstance(err, HomeAssistantError):
+            return err
+        if isinstance(err, WattsAuthError):
+            self.config_entry.async_start_reauth(self.hass)
+            error = HomeAssistantError(translation_domain=DOMAIN, translation_key="auth_failed")
+        else:
+            error = HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="command_failed",
+                translation_placeholders={"error": str(err)},
+            )
+        error.__cause__ = err
+        return error
+
+    # --- Weekly schedule ------------------------------------------------------------------
+
+    def get_schedule(self, smarthome_id: str, id_device: str) -> dict[str, Any]:
+        """Return the weekly schedule as readable comfort blocks per day."""
+        device = self._require_device(smarthome_id, id_device)
+        if device.schedule is None:
+            raise HomeAssistantError(translation_domain=DOMAIN, translation_key="schedule_unavailable")
+        return {
+            "schedule": slots_to_week_blocks(device.schedule),
+            "comfort_temperature": device.get_setpoint(SETPOINT_COMFORT),
+            "eco_temperature": device.get_setpoint(SETPOINT_ECO),
+        }
+
+    async def async_set_schedule(
+        self, smarthome_id: str, id_device: str, changes: dict[str, list[dict[str, Any]]]
+    ) -> dict[str, Any]:
+        """Replace the given days of the weekly schedule; other days stay as they are.
+
+        Uses device/apply_program like the app. The app does not call check_failure
+        after it, so the result is confirmed by reading the schedule back.
+        """
+        self._check_writable(smarthome_id)
+        device = self._require_device(smarthome_id, id_device)
+        key: DeviceKey = (smarthome_id, id_device)
+        try:
+            slots = merge_week(device.schedule, changes)
+            form = build_apply_program_form(slots)
+        except ScheduleError as err:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN, translation_key=err.key, translation_placeholders=err.placeholders
+            ) from err
+
+        programme = encode_programme(slots)
+        previous = slots_to_week_blocks(device.schedule) if device.schedule is not None else None
+        result = {"previous_schedule": previous, "schedule": slots_to_week_blocks(slots), "changed": False}
+        if programme == device.programme:
+            return result
+
+        # Safety net: the old schedule can be restored from the log.
+        _LOGGER.info("Replacing schedule of %s; previous schedule: %s", device.display_name, previous)
+        sync = self.sync_state(smarthome_id)
+        async with sync.lock:
+            try:
+                await self._async_ensure_central_online(smarthome_id)
+                sync.status = "sending"
+                peremption_ms = sync.peremption_ms
+                await self.client.async_apply_program(
+                    smarthome_id, id_device, form, lang=self.lang, peremption_ms=peremption_ms
+                )
+            except (WattsError, HomeAssistantError) as err:
+                sync.status = "failed"
+                self.async_update_listeners()
+                raise self._write_error(err) from err
+
+            now = time.monotonic()
+            sync.status = "sent"
+            sync.quiet_until = now + POST_WRITE_QUIET_SECONDS
+            window = peremption_ms / 1000 + CHECK_FAILURE_MARGIN_SECONDS
+            self._add_pending(key, {FIELD_PROGRAMME: programme}, deadline=now + window + CONFIRM_TIMEOUT_SECONDS)
+            self._start_verify(smarthome_id, delay=window)
+
+        self._publish_view()
+        result["changed"] = True
+        return result
 
     async def _async_ensure_central_online(self, smarthome_id: str) -> None:
         """Refuse to push when the central unit has stopped checking in."""
@@ -509,7 +591,10 @@ class WattsDataUpdateCoordinator(DataUpdateCoordinator[WattsState]):
                 await asyncio.sleep(wait)
             handled_due = sync.verify_due
 
-            await self._async_check_failure(smarthome_id, sync)
+            if sync.query_pushed:
+                # check_failure reports on query/push commands only.
+                sync.query_pushed = False
+                await self._async_check_failure(smarthome_id, sync)
             sync.quiet_until = 0.0
             self.async_update_listeners()
             await self.async_refresh()
@@ -568,6 +653,8 @@ class WattsDataUpdateCoordinator(DataUpdateCoordinator[WattsState]):
         for setpoint in SETPOINT_KEYS:
             if (raw := fields.get(setpoint)) is not None and (celsius := raw_to_celsius(raw)) is not None:
                 parts.append(f"{SETPOINT_LABELS[setpoint]} {celsius:.1f} °C")
+        if FIELD_PROGRAMME in fields:
+            parts.append("weekly schedule")
         return f"{name}: {', '.join(parts) or 'settings'}"
 
     def _notification_id(self, smarthome_id: str) -> str:

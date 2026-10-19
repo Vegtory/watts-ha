@@ -42,5 +42,13 @@
         }
       }
     }
+  },
+  "services": {
+    "get_schedule": {
+      "service": "mdi:calendar-search"
+    },
+    "set_schedule": {
+      "service": "mdi:calendar-edit"
+    }
   }
 }

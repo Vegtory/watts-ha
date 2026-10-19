@@ -1,0 +1,40 @@
+get_schedule:
+  target:
+    entity:
+      integration: watts_smarthome
+      domain: climate
+
+set_schedule:
+  target:
+    entity:
+      integration: watts_smarthome
+      domain: climate
+  fields:
+    monday:
+      example: '[{"start": "06:30", "end": "08:00"}, {"start": "17:00", "end": "22:00"}]'
+      selector:
+        object:
+    tuesday:
+      example: '[{"start": "06:30", "end": "08:00"}, {"start": "17:00", "end": "22:00"}]'
+      selector:
+        object:
+    wednesday:
+      example: '[{"start": "06:30", "end": "08:00"}, {"start": "17:00", "end": "22:00"}]'
+      selector:
+        object:
+    thursday:
+      example: '[{"start": "06:30", "end": "08:00"}, {"start": "17:00", "end": "22:00"}]'
+      selector:
+        object:
+    friday:
+      example: '[{"start": "06:30", "end": "08:00"}, {"start": "17:00", "end": "22:00"}]'
+      selector:
+        object:
+    saturday:
+      example: '[{"start": "06:30", "end": "08:00"}, {"start": "17:00", "end": "22:00"}]'
+      selector:
+        object:
+    sunday:
+      example: '[{"start": "06:30", "end": "08:00"}, {"start": "17:00", "end": "22:00"}]'
+      selector:
+        object:

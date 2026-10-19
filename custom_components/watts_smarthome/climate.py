@@ -12,9 +12,11 @@ from homeassistant.components.climate import (
     HVACMode,
 )
 from homeassistant.const import ATTR_TEMPERATURE, PRECISION_TENTHS, UnitOfTemperature
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, ServiceResponse, SupportsResponse
+from homeassistant.helpers import entity_platform
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
+import voluptuous as vol
 
 from . import WattsConfigEntry
 from .const import (
@@ -29,11 +31,17 @@ from .const import (
     TEMPERATURE_STEP_C,
 )
 from .entity import WattsScheduleAwareEntity, async_setup_device_entities
+from .schedule import DAYS
 
 # Writes are queued and merged by the coordinator.
 PARALLEL_UPDATES = 0
 
 PRESET_MODES = [MODE_COMFORT, MODE_ECO, MODE_ANTI_FROST, MODE_BOOST]
+SERVICE_GET_SCHEDULE = "get_schedule"
+SERVICE_SET_SCHEDULE = "set_schedule"
+_BLOCK = vol.Schema({vol.Required("start"): vol.Any(str, int), vol.Required("end"): vol.Any(str, int)})
+SET_SCHEDULE_SCHEMA: dict[Any, Any] = {vol.Optional(day): vol.Any(None, [_BLOCK]) for day in DAYS}
+
 DEFAULT_MIN_TEMP = 5.0
 DEFAULT_MAX_TEMP = 37.0
 
@@ -44,6 +52,13 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Watts thermostats from a config entry."""
+    platform = entity_platform.async_get_current_platform()
+    platform.async_register_entity_service(
+        SERVICE_GET_SCHEDULE, None, "async_get_schedule", supports_response=SupportsResponse.ONLY
+    )
+    platform.async_register_entity_service(
+        SERVICE_SET_SCHEDULE, SET_SCHEDULE_SCHEMA, "async_set_schedule", supports_response=SupportsResponse.OPTIONAL
+    )
     async_setup_device_entities(
         entry,
         async_add_entities,
@@ -166,6 +181,15 @@ class WattsClimate(WattsScheduleAwareEntity, ClimateEntity):
             await self.async_set_hvac_mode(hvac_mode)
         if (temperature := kwargs.get(ATTR_TEMPERATURE)) is not None:
             await self.coordinator.async_set_target_temperature(self._smarthome_id, self._id_device, temperature)
+
+    async def async_get_schedule(self) -> ServiceResponse:
+        """Return the weekly schedule (watts_smarthome.get_schedule)."""
+        return self.coordinator.get_schedule(self._smarthome_id, self._id_device)
+
+    async def async_set_schedule(self, **days: Any) -> ServiceResponse:
+        """Replace days of the weekly schedule (watts_smarthome.set_schedule)."""
+        changes = {day: blocks or [] for day, blocks in days.items() if day in DAYS}
+        return await self.coordinator.async_set_schedule(self._smarthome_id, self._id_device, changes)
 
     async def async_turn_on(self) -> None:
         """Turn on by resuming the weekly schedule."""
