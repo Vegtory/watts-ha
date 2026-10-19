@@ -148,6 +148,8 @@ Changes are refused while holiday mode is active, like in the app.
 
 Requires Home Assistant 2025.1 or newer.
 The integration icon in Home Assistant (light and dark, in `brand/`) shows from Home Assistant 2026.3.
+A copy in the repository-root `brand/` folder is there for HACS, which does not show local brand icons yet
+(see hacs/integration#5171). Keep both copies the same; a test checks this.
 
 ## Options
 
