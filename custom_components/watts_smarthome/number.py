@@ -1,185 +1,166 @@
-"""Number entities for Watts SmartHome controls."""
+"""Number entities for Watts SmartHome (setpoints and boost duration)."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from homeassistant.components.number import NumberDeviceClass, NumberEntity, NumberMode
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import UnitOfTemperature, UnitOfTime
+from homeassistant.components.number import (
+    NumberDeviceClass,
+    NumberEntity,
+    NumberEntityDescription,
+    NumberMode,
+    RestoreNumber,
+)
+from homeassistant.const import EntityCategory, UnitOfTemperature, UnitOfTime
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from . import get_coordinator
-from .const import SETPOINT_ANTI_FROST, SETPOINT_BOOST, SETPOINT_COMFORT, SETPOINT_ECO
-from .entity import WattsDeviceEntity
+from . import WattsConfigEntry
+from .const import (
+    ANTI_FROST_MAX_C,
+    ANTI_FROST_MIN_C,
+    MAX_BOOST_SECONDS,
+    MIN_BOOST_SECONDS,
+    SETPOINT_ANTI_FROST,
+    SETPOINT_BOOST,
+    SETPOINT_COMFORT,
+    SETPOINT_ECO,
+    TEMPERATURE_STEP_C,
+)
+from .coordinator import WattsDataUpdateCoordinator
+from .entity import WattsDeviceEntity, async_setup_device_entities
+from .models import clamp_boost_seconds
+
+PARALLEL_UPDATES = 0
 
 
-@dataclass(frozen=True, slots=True)
-class SetpointNumberDescription:
+@dataclass(frozen=True, kw_only=True)
+class WattsSetpointDescription(NumberEntityDescription):
     """Description of one setpoint control."""
 
-    entity_key: str
-    translation_key: str
     setpoint_key: str
+    fixed_min: float | None = None
+    fixed_max: float | None = None
 
 
-SETPOINT_NUMBERS: tuple[SetpointNumberDescription, ...] = (
-    SetpointNumberDescription(
-        entity_key="setpoint_comfort",
-        translation_key="setpoint_comfort",
-        setpoint_key=SETPOINT_COMFORT,
-    ),
-    SetpointNumberDescription(
-        entity_key="setpoint_eco",
-        translation_key="setpoint_eco",
-        setpoint_key=SETPOINT_ECO,
-    ),
-    SetpointNumberDescription(
-        entity_key="setpoint_anti_frost",
+SETPOINTS: tuple[WattsSetpointDescription, ...] = (
+    WattsSetpointDescription(key="setpoint_comfort", translation_key="setpoint_comfort", setpoint_key=SETPOINT_COMFORT),
+    WattsSetpointDescription(key="setpoint_eco", translation_key="setpoint_eco", setpoint_key=SETPOINT_ECO),
+    WattsSetpointDescription(
+        key="setpoint_anti_frost",
         translation_key="setpoint_anti_frost",
         setpoint_key=SETPOINT_ANTI_FROST,
+        fixed_min=ANTI_FROST_MIN_C,
+        fixed_max=ANTI_FROST_MAX_C,
     ),
-    SetpointNumberDescription(
-        entity_key="setpoint_boost",
-        translation_key="setpoint_boost",
-        setpoint_key=SETPOINT_BOOST,
-    ),
+    WattsSetpointDescription(key="setpoint_boost", translation_key="setpoint_boost", setpoint_key=SETPOINT_BOOST),
 )
 
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
-    async_add_entities,
+    entry: WattsConfigEntry,
+    async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up Watts numbers from config entry."""
-    coordinator = get_coordinator(hass, entry)
-    known: set[tuple[str, str, str]] = set()
+    """Set up Watts numbers from a config entry."""
 
-    def add_missing_entities() -> None:
-        new_entities: list[NumberEntity] = []
-        for smarthome_id, id_device in sorted(coordinator.device_keys()):
-            for description in SETPOINT_NUMBERS:
-                key = (smarthome_id, id_device, description.entity_key)
-                if key in known:
-                    continue
-                known.add(key)
-                new_entities.append(
-                    WattsSetpointNumber(
-                        coordinator=coordinator,
-                        smarthome_id=smarthome_id,
-                        id_device=id_device,
-                        description=description,
-                    )
-                )
+    def factory(coordinator: WattsDataUpdateCoordinator, smarthome_id: str, id_device: str) -> list[NumberEntity]:
+        entities: list[NumberEntity] = [
+            WattsSetpointNumber(coordinator, smarthome_id, id_device, description) for description in SETPOINTS
+        ]
+        entities.append(WattsBoostDurationNumber(coordinator, smarthome_id, id_device))
+        return entities
 
-            boost_timer_key = (smarthome_id, id_device, "boost_timer")
-            if boost_timer_key not in known:
-                known.add(boost_timer_key)
-                new_entities.append(
-                    WattsBoostTimerNumber(
-                        coordinator=coordinator,
-                        smarthome_id=smarthome_id,
-                        id_device=id_device,
-                    )
-                )
-
-        if new_entities:
-            async_add_entities(new_entities)
-
-    add_missing_entities()
-    entry.async_on_unload(coordinator.async_add_listener(add_missing_entities))
+    async_setup_device_entities(entry, async_add_entities, factory)
 
 
 class WattsSetpointNumber(WattsDeviceEntity, NumberEntity):
-    """Base number entity for one setpoint type."""
+    """Temperature for one mode (comfort, eco, anti-frost, boost)."""
 
+    entity_description: WattsSetpointDescription
     _attr_device_class = NumberDeviceClass.TEMPERATURE
+    _attr_entity_category = EntityCategory.CONFIG
     _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
-    _attr_native_step = 0.1
+    _attr_native_step = TEMPERATURE_STEP_C
     _attr_mode = NumberMode.BOX
 
     def __init__(
         self,
-        *,
-        coordinator,
+        coordinator: WattsDataUpdateCoordinator,
         smarthome_id: str,
         id_device: str,
-        description: SetpointNumberDescription,
+        description: WattsSetpointDescription,
     ) -> None:
-        """Initialize setpoint number."""
         super().__init__(
             coordinator=coordinator,
             smarthome_id=smarthome_id,
             id_device=id_device,
-            entity_key=description.entity_key,
+            entity_key=description.key,
         )
-        self._description = description
-        self._attr_translation_key = description.translation_key
+        self.entity_description = description
 
     @property
     def native_value(self) -> float | None:
-        """Return setpoint value in Celsius."""
-        return self.device.get_setpoint(self._description.setpoint_key)
+        return self.device.get_setpoint(self.entity_description.setpoint_key)
 
     @property
     def native_min_value(self) -> float:
-        """Return device minimum setpoint."""
-        return self.device.min_set_point or 0.0
+        if self.entity_description.fixed_min is not None:
+            return self.entity_description.fixed_min
+        return self.device.min_set_point or 5.0
 
     @property
     def native_max_value(self) -> float:
-        """Return device maximum setpoint."""
-        return self.device.max_set_point or 40.0
+        if self.entity_description.fixed_max is not None:
+            return self.entity_description.fixed_max
+        return self.device.max_set_point or 37.0
 
     async def async_set_native_value(self, value: float) -> None:
-        """Set temperature setpoint."""
         await self.coordinator.async_set_setpoint(
-            self._smarthome_id,
-            self._id_device,
-            self._description.setpoint_key,
-            value,
+            self._smarthome_id, self._id_device, self.entity_description.setpoint_key, value
         )
 
 
-class WattsBoostTimerNumber(WattsDeviceEntity, NumberEntity):
-    """Number entity for boost timer duration."""
+class WattsBoostDurationNumber(WattsDeviceEntity, RestoreNumber):
+    """How long boost runs when started from Home Assistant.
 
-    _attr_translation_key = "boost_timer"
+    The cloud only learns the duration when boost starts, so the value is kept
+    in Home Assistant. Changing it while boost runs restarts boost.
+    """
+
+    _attr_translation_key = "boost_duration"
     _attr_device_class = NumberDeviceClass.DURATION
+    _attr_entity_category = EntityCategory.CONFIG
     _attr_native_unit_of_measurement = UnitOfTime.MINUTES
     _attr_native_step = 1
-    _attr_native_min_value = 0
-    _attr_suggested_display_precision = 0
+    _attr_native_min_value = MIN_BOOST_SECONDS / 60
+    _attr_native_max_value = MAX_BOOST_SECONDS / 60
     _attr_mode = NumberMode.BOX
-    _attr_icon = "mdi:timer-cog"
 
-    def __init__(self, *, coordinator, smarthome_id: str, id_device: str) -> None:
-        """Initialize boost timer number."""
+    def __init__(self, coordinator: WattsDataUpdateCoordinator, smarthome_id: str, id_device: str) -> None:
+        # Keeps the old "boost_timer" unique id so existing entities are reused.
         super().__init__(
             coordinator=coordinator,
             smarthome_id=smarthome_id,
             id_device=id_device,
             entity_key="boost_timer",
         )
+        self._key = (smarthome_id, id_device)
 
-    @property
-    def native_max_value(self) -> float:
-        """Return a permissive max value for boost timer in minutes."""
-        max_seconds = max(14400, self.device.time_boost_seconds, 7200)
-        return float(round(max_seconds / 60))
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        last = await self.async_get_last_number_data()
+        if last is not None and last.native_value:
+            self.coordinator.boost_seconds[self._key] = clamp_boost_seconds(int(last.native_value * 60))
 
     @property
     def native_value(self) -> float:
-        """Return current boost duration in minutes."""
-        return float(round(self.device.time_boost_seconds / 60))
+        return round(self.coordinator.get_boost_seconds(*self._key) / 60)
 
     async def async_set_native_value(self, value: float) -> None:
-        """Set boost timer in minutes."""
-        whole_minutes = int(round(value))
-        value_seconds = whole_minutes * 60
-        await self.coordinator.async_set_boost_timer(
-            self._smarthome_id,
-            self._id_device,
-            value_seconds,
-        )
+        seconds = clamp_boost_seconds(round(value) * 60)
+        self.coordinator.boost_seconds[self._key] = seconds
+        if self.device.is_boost:
+            await self.coordinator.async_set_boost_duration(self._smarthome_id, self._id_device, seconds)
+        else:
+            self.async_write_ha_state()

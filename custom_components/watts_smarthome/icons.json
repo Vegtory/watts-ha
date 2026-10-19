@@ -1,0 +1,46 @@
+{
+  "entity": {
+    "select": {
+      "mode_selection": {
+        "default": "mdi:thermostat"
+      }
+    },
+    "number": {
+      "boost_duration": {
+        "default": "mdi:timer-cog"
+      }
+    },
+    "sensor": {
+      "heating_status": {
+        "default": "mdi:radiator-off",
+        "state": {
+          "heating": "mdi:radiator"
+        }
+      },
+      "error_code": {
+        "default": "mdi:alert-circle-outline"
+      },
+      "operating_mode": {
+        "default": "mdi:thermostat-box"
+      },
+      "command_status": {
+        "default": "mdi:send-clock",
+        "state": {
+          "delivered": "mdi:send-check",
+          "failed": "mdi:send-lock"
+        }
+      },
+      "next_schedule_change": {
+        "default": "mdi:calendar-clock"
+      }
+    },
+    "binary_sensor": {
+      "problem": {
+        "default": "mdi:check-circle-outline",
+        "state": {
+          "on": "mdi:alert-circle"
+        }
+      }
+    }
+  }
+}

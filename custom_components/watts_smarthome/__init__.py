@@ -5,88 +5,67 @@ from __future__ import annotations
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME, Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers.typing import ConfigType
 
 from .api import WattsApiClient
-from .const import CONF_LANG, CONF_SCAN_INTERVAL, DEFAULT_LANG, DEFAULT_SCAN_INTERVAL, DOMAIN
+from .const import CONF_LANG, CONF_SCAN_INTERVAL, DEFAULT_LANG, DEFAULT_SCAN_INTERVAL, DOMAIN, MIN_SCAN_INTERVAL
 from .coordinator import WattsDataUpdateCoordinator
-from .data import WattsRuntimeData
 
-PLATFORMS: tuple[Platform, ...] = (
-    Platform.SELECT,
+PLATFORMS: list[Platform] = [
+    Platform.BINARY_SENSOR,
+    Platform.CLIMATE,
     Platform.NUMBER,
+    Platform.SELECT,
     Platform.SENSOR,
-)
+]
+
+type WattsConfigEntry = ConfigEntry[WattsDataUpdateCoordinator]
 
 
-async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Set up the Watts integration from YAML (not used)."""
-    return True
-
-
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_setup_entry(hass: HomeAssistant, entry: WattsConfigEntry) -> bool:
     """Set up Watts SmartHome from a config entry."""
-    username = entry.data[CONF_USERNAME]
-    password = entry.data[CONF_PASSWORD]
     lang = entry.options.get(CONF_LANG, entry.data.get(CONF_LANG, DEFAULT_LANG))
-    scan_interval = int(
-        entry.options.get(
-            CONF_SCAN_INTERVAL,
-            entry.data.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
-        )
+    scan_interval = max(
+        MIN_SCAN_INTERVAL,
+        int(entry.options.get(CONF_SCAN_INTERVAL, entry.data.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL))),
     )
 
-    session = async_get_clientsession(hass)
     client = WattsApiClient(
-        session=session,
-        username=username,
-        password=password,
+        session=async_get_clientsession(hass),
+        username=entry.data[CONF_USERNAME],
+        password=entry.data[CONF_PASSWORD],
         default_lang=lang,
     )
     coordinator = WattsDataUpdateCoordinator(
         hass,
+        entry,
         client=client,
         lang=lang,
         scan_interval_seconds=scan_interval,
     )
-
     await coordinator.async_config_entry_first_refresh()
-
-    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = WattsRuntimeData(
-        client=client,
-        coordinator=coordinator,
-    )
+    entry.runtime_data = coordinator
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    entry.async_on_unload(entry.add_update_listener(async_reload_entry))
-
+    entry.async_on_unload(entry.add_update_listener(_async_options_updated))
     return True
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_unload_entry(hass: HomeAssistant, entry: WattsConfigEntry) -> bool:
     """Unload a config entry."""
-    unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-    if unloaded:
-        hass.data[DOMAIN].pop(entry.entry_id)
-    return unloaded
+    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
 
-async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Reload config entry."""
+async def _async_options_updated(hass: HomeAssistant, entry: WattsConfigEntry) -> None:
+    """Reload when options change."""
     await hass.config_entries.async_reload(entry.entry_id)
 
 
-def get_runtime_data(hass: HomeAssistant, entry: ConfigEntry) -> WattsRuntimeData:
-    """Return runtime data for a config entry."""
-    return hass.data[DOMAIN][entry.entry_id]
-
-
-def get_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> WattsDataUpdateCoordinator:
-    """Return coordinator for a config entry."""
-    return get_runtime_data(hass, entry).coordinator
-
-
-def get_client(hass: HomeAssistant, entry: ConfigEntry) -> WattsApiClient:
-    """Return API client for a config entry."""
-    return get_runtime_data(hass, entry).client
+async def async_remove_config_entry_device(
+    hass: HomeAssistant, entry: WattsConfigEntry, device_entry: dr.DeviceEntry
+) -> bool:
+    """Allow removing a device that the cloud no longer reports."""
+    coordinator = entry.runtime_data
+    known = {f"{sid}_{did}" for sid, did in coordinator.device_keys()} | coordinator.smarthome_ids()
+    return not any(domain == DOMAIN and identifier in known for domain, identifier in device_entry.identifiers)

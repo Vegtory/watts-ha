@@ -1,10 +1,13 @@
 {
   "domain": "watts_smarthome",
   "name": "Watts SmartHome",
-  "version": "0.0.1",
+  "codeowners": ["@Vegtory"],
   "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/Vegtory/watts-ha",
   "iot_class": "cloud_polling",
-  "homeassistant": "2023.8.0",
+  "issue_tracker": "https://github.com/Vegtory/watts-ha/issues",
+  "loggers": ["custom_components.watts_smarthome"],
   "requirements": [],
-  "loggers": ["custom_components.watts_smarthome"]
+  "version": "0.1.0"
 }

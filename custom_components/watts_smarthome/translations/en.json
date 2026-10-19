@@ -3,22 +3,37 @@
     "step": {
       "user": {
         "title": "Connect Watts SmartHome",
-        "description": "Set up your Watts account credentials.",
+        "description": "Sign in with the account you use in the Watts SmartHome app.",
         "data": {
           "username": "Email",
-          "password": "Password",
-          "lang": "Language",
-          "scan_interval": "Polling interval (seconds)"
+          "password": "Password"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Sign in again",
+        "description": "The password for {username} no longer works. Enter the current password.",
+        "data": {
+          "password": "Password"
+        }
+      },
+      "reconfigure": {
+        "title": "Update Watts account",
+        "data": {
+          "username": "Email",
+          "password": "Password"
         }
       }
     },
     "error": {
-      "invalid_auth": "Invalid authentication",
-      "cannot_connect": "Failed to connect",
+      "invalid_auth": "Invalid email or password",
+      "cannot_connect": "Failed to connect to the Watts cloud",
       "unknown": "Unexpected error"
     },
     "abort": {
-      "already_configured": "Account is already configured"
+      "already_configured": "Account is already configured",
+      "reauth_successful": "Re-authentication was successful",
+      "reconfigure_successful": "Re-configuration was successful",
+      "wrong_account": "This is a different Watts account. Add it as a new integration instead."
     }
   },
   "options": {
@@ -28,46 +43,177 @@
         "data": {
           "lang": "Language",
           "scan_interval": "Polling interval (seconds)"
+        },
+        "data_description": {
+          "lang": "Language code for texts from the Watts cloud, such as error titles (for example en_GB, nl_NL).",
+          "scan_interval": "How often to read the thermostats. After a change, Home Assistant also checks the result by itself."
         }
       }
     }
   },
   "entity": {
+    "binary_sensor": {
+      "central_connectivity": {
+        "name": "Central unit connection"
+      },
+      "problem": {
+        "name": "Problem"
+      }
+    },
+    "climate": {
+      "thermostat": {
+        "state_attributes": {
+          "preset_mode": {
+            "state": {
+              "comfort": "Comfort",
+              "eco": "Eco",
+              "anti_frost": "Anti-frost",
+              "boost": "Boost"
+            }
+          },
+          "schedule_period": {
+            "name": "Schedule period",
+            "state": {
+              "comfort": "Comfort",
+              "eco": "Eco",
+              "boost": "Boost"
+            }
+          },
+          "schedule_temperature": {
+            "name": "Schedule temperature"
+          },
+          "next_change": {
+            "name": "Next change"
+          },
+          "next_period": {
+            "name": "Next period",
+            "state": {
+              "comfort": "Comfort",
+              "eco": "Eco"
+            }
+          },
+          "next_temperature": {
+            "name": "Next temperature"
+          }
+        }
+      }
+    },
     "select": {
       "mode_selection": {
-        "name": "Mode selection"
+        "name": "Mode",
+        "state": {
+          "comfort": "Comfort",
+          "eco": "Eco",
+          "anti_frost": "Anti-frost",
+          "boost": "Boost",
+          "off": "Off",
+          "program_on": "Schedule"
+        }
       }
     },
     "number": {
       "setpoint_comfort": {
-        "name": "Setpoint comfort"
+        "name": "Comfort temperature"
       },
       "setpoint_eco": {
-        "name": "Setpoint eco"
+        "name": "Eco temperature"
       },
       "setpoint_anti_frost": {
-        "name": "Setpoint anti-frost"
+        "name": "Anti-frost temperature"
       },
       "setpoint_boost": {
-        "name": "Setpoint boost"
+        "name": "Boost temperature"
       },
-      "boost_timer": {
-        "name": "Boost timer"
+      "boost_duration": {
+        "name": "Boost duration"
       }
     },
     "sensor": {
       "current_air_temperature": {
-        "name": "Current air temperature"
+        "name": "Air temperature"
+      },
+      "floor_temperature": {
+        "name": "Floor temperature"
       },
       "heating_status": {
-        "name": "Heating status"
+        "name": "Heating status",
+        "state": {
+          "idle": "Idle",
+          "heating": "Heating"
+        }
       },
       "error_code": {
         "name": "Error code"
       },
       "operating_mode": {
-        "name": "Operating mode"
+        "name": "Operating mode",
+        "state": {
+          "comfort": "Comfort",
+          "off": "Off",
+          "anti_frost": "Anti-frost",
+          "eco": "Eco",
+          "boost": "Boost",
+          "program_on": "Schedule (comfort)",
+          "program_eco": "Schedule (eco)",
+          "program": "Schedule",
+          "manual": "Manual",
+          "program_boost": "Schedule (boost)"
+        }
+      },
+      "last_contact": {
+        "name": "Last check-in"
+      },
+      "command_status": {
+        "name": "Last command",
+        "state": {
+          "idle": "No command sent",
+          "sending": "Sending",
+          "sent": "Waiting for central unit",
+          "delivered": "Delivered",
+          "failed": "Failed"
+        }
+      },
+      "next_schedule_change": {
+        "name": "Next schedule change",
+        "state_attributes": {
+          "next_period": {
+            "name": "Next period",
+            "state": {
+              "comfort": "Comfort",
+              "eco": "Eco"
+            }
+          },
+          "next_temperature": {
+            "name": "Next temperature"
+          }
+        }
       }
+    }
+  },
+  "exceptions": {
+    "auth_failed": {
+      "message": "The Watts cloud rejected the stored credentials."
+    },
+    "device_not_found": {
+      "message": "The Watts cloud no longer reports this device."
+    },
+    "unsupported_mode": {
+      "message": "Mode {mode} cannot be selected."
+    },
+    "no_target_in_mode": {
+      "message": "The thermostat is off. Switch to Heat to set a temperature."
+    },
+    "holiday_mode": {
+      "message": "Holiday mode is active. The Watts cloud does not accept changes until it ends."
+    },
+    "central_offline": {
+      "message": "The central unit has not contacted the Watts cloud for {seconds} seconds, so the command was not sent."
+    },
+    "command_failed": {
+      "message": "Sending the command to the Watts cloud failed: {error}"
+    },
+    "target_in_schedule": {
+      "message": "The schedule sets the temperature from the Comfort and Eco settings. Switch to Heat to set a temperature, or change the Comfort or Eco temperature."
     }
   }
 }

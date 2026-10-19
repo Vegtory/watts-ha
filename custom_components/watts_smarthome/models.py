@@ -2,29 +2,51 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from collections.abc import Mapping
+from dataclasses import dataclass, field, replace
+from datetime import datetime, timedelta
 from typing import Any
 
 from .const import (
     BOOST_TIMER,
     CELSIUS_TO_FAHRENHEIT_FACTOR,
+    DEFAULT_BOOST_SECONDS,
     FAHRENHEIT_OFFSET,
     FAHRENHEIT_TO_CELSIUS_FACTOR,
+    FIELD_GV_MODE,
+    FIELD_ID_DEVICE,
+    FIELD_NV_MODE,
     HEATING_ACTIVE,
     HEATING_IDLE,
+    MAX_BOOST_SECONDS,
+    MIN_BOOST_SECONDS,
     MODE_BOOST,
     MODE_CODE_TO_OPTION,
+    MODE_COMFORT,
+    MODE_ECO,
+    MODE_OFF,
     MODE_OPTION_TO_CODE,
+    MODE_PROGRAM_BOOST,
+    MODE_PROGRAM_ON,
     MODE_UNKNOWN,
+    PROGRAM_MODES,
     RAW_TEMPERATURE_DECI_SCALE,
-    SETPOINT_ANTI_FROST,
-    SETPOINT_BOOST,
+    SELECTABLE_MODES,
     SETPOINT_BY_MODE,
     SETPOINT_COMFORT,
-    SETPOINT_ECO,
     SETPOINT_KEYS,
     SETPOINT_MANUAL,
+    TEMPERATURE_STEP_C,
+    VALID_TEMPERATURE_MAX_C,
+    VALID_TEMPERATURE_MIN_C,
 )
+
+# Holiday dates the app treats as "not set".
+_UNSET_HOLIDAY_DATES = {"", "null", "0000-00-00 00:00:00", "1970-01-01 00:00:00", "2014-01-01 00:00:00"}
+_HOLIDAY_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+# Raw fields we expect smarthome/read to echo back after a successful write.
+TRACKED_WRITE_FIELDS: frozenset[str] = frozenset({FIELD_GV_MODE, *SETPOINT_KEYS})
 
 
 def _as_str(value: Any) -> str:
@@ -46,21 +68,95 @@ def _as_int(value: Any) -> int | None:
 
 
 def raw_to_celsius(raw_value: str | int | None) -> float | None:
-    """Convert Watts raw temperature to Celsius."""
-    if raw_value is None:
-        return None
+    """Convert a Watts raw (deci-Fahrenheit) temperature to Celsius.
+
+    Returns None for values the app shows as "--.-" (no sensor).
+    """
     raw_int = _as_int(raw_value)
     if raw_int is None:
         return None
-    fahrenheit_value = raw_int / RAW_TEMPERATURE_DECI_SCALE
-    celsius_value = (fahrenheit_value - FAHRENHEIT_OFFSET) * FAHRENHEIT_TO_CELSIUS_FACTOR
-    return round(celsius_value, 1)
+    celsius = (raw_int / RAW_TEMPERATURE_DECI_SCALE - FAHRENHEIT_OFFSET) * FAHRENHEIT_TO_CELSIUS_FACTOR
+    if not VALID_TEMPERATURE_MIN_C < celsius < VALID_TEMPERATURE_MAX_C:
+        return None
+    return round(celsius, 1)
 
 
 def celsius_to_raw(temperature: float) -> int:
-    """Convert Celsius value to Watts raw temperature."""
+    """Convert a Celsius value to Watts raw (deci-Fahrenheit) temperature."""
     fahrenheit_value = (temperature * CELSIUS_TO_FAHRENHEIT_FACTOR) + FAHRENHEIT_OFFSET
-    return int(round(fahrenheit_value * RAW_TEMPERATURE_DECI_SCALE))
+    return round(fahrenheit_value * RAW_TEMPERATURE_DECI_SCALE)
+
+
+def round_to_step(celsius: float) -> float:
+    """Round to the 0.5 °C steps the thermostats accept."""
+    return round(celsius / TEMPERATURE_STEP_C) * TEMPERATURE_STEP_C
+
+
+# --- Weekly schedule ("programme") ------------------------------------------------
+# 336 hex characters: Monday first, one character per 30 minutes, two bits per
+# 15 minutes (high bits = first quarter). 0 = eco, 1 = comfort. Verified against
+# the app's sandbox/convert_program output.
+SCHEDULE_SLOT_MINUTES = 15
+SCHEDULE_SLOTS_PER_WEEK = 7 * 24 * 60 // SCHEDULE_SLOT_MINUTES
+_SCHEDULE_VALUES = {0: MODE_ECO, 1: MODE_COMFORT}
+
+
+def decode_schedule(programme: str) -> tuple[str, ...] | None:
+    """Return one period name per 15-minute slot of the week, or None if invalid."""
+    if len(programme) != SCHEDULE_SLOTS_PER_WEEK // 2:
+        return None
+    slots: list[str] = []
+    for char in programme:
+        try:
+            value = int(char, 16)
+        except ValueError:
+            return None
+        for bits in ((value >> 2) & 3, value & 3):
+            slots.append(_SCHEDULE_VALUES.get(bits, f"{MODE_UNKNOWN}_{bits}"))
+    return tuple(slots)
+
+
+@dataclass(frozen=True, slots=True)
+class ScheduleChange:
+    """The next switch in the weekly schedule."""
+
+    at: datetime
+    period: str
+
+
+def _slot_index(now: datetime) -> int:
+    return now.weekday() * 96 + (now.hour * 60 + now.minute) // SCHEDULE_SLOT_MINUTES
+
+
+def schedule_period_at(slots: tuple[str, ...], now: datetime) -> str:
+    """Return the schedule period ("comfort"/"eco") active at `now` (local time)."""
+    return slots[_slot_index(now)]
+
+
+def next_schedule_change(slots: tuple[str, ...], now: datetime) -> ScheduleChange | None:
+    """Return when the schedule next switches period, or None if it never does."""
+    index = _slot_index(now)
+    current = slots[index]
+    slot_start = now.replace(minute=now.minute - now.minute % SCHEDULE_SLOT_MINUTES, second=0, microsecond=0)
+    for step in range(1, SCHEDULE_SLOTS_PER_WEEK):
+        period = slots[(index + step) % SCHEDULE_SLOTS_PER_WEEK]
+        if period != current:
+            # Wall-clock arithmetic: the schedule follows local time, also across DST.
+            return ScheduleChange(at=slot_start + timedelta(minutes=SCHEDULE_SLOT_MINUTES * step), period=period)
+    return None
+
+
+# The device also reports the active period through its mode code.
+SCHEDULE_PERIOD_BY_MODE: dict[str, str] = {
+    MODE_PROGRAM_ON: MODE_COMFORT,
+    "program_eco": MODE_ECO,
+    "program_boost": MODE_BOOST,
+}
+
+
+def mode_from_code(mode_code: str) -> str:
+    """Return a stable mode option string from an API code."""
+    return MODE_CODE_TO_OPTION.get(mode_code, f"{MODE_UNKNOWN}_{mode_code}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,13 +174,7 @@ class WattsSmarthomeSummary:
 
     smarthome_id: str
     label: str
-    address: str
-    latitude: str
-    longitude: str
     mac_address: str
-    general_mode: str
-    holiday_mode: str
-    unit_mode: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,27 +184,7 @@ class WattsUserProfile:
     user_id: str
     email: str
     lang_code: str
-    cgu_id: str
-    optin_stats: str
     smarthomes: tuple[WattsSmarthomeSummary, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class WattsUserRef:
-    """A user entry attached to a smarthome."""
-
-    user_id: str
-    user_email: str
-
-
-@dataclass(frozen=True, slots=True)
-class WattsModeInfo:
-    """Mode metadata entry from smarthome/read."""
-
-    smarthome_id: str
-    mode_type_id: str
-    bundle_id: str
-    nvgv_mode_id: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,8 +194,6 @@ class WattsZone:
     num_zone: str
     zone_label: str
     zone_type_label: str
-    zone_type_icon: str
-    zone_image_id: str
     device_ids: tuple[str, ...]
 
 
@@ -134,7 +202,6 @@ class WattsDevice:
     """Device model normalized from smarthome/read and get_errors."""
 
     smarthome_id: str
-    id: str
     id_device: str
     name: str
     zone_id: str
@@ -149,25 +216,34 @@ class WattsDevice:
     min_set_point_raw: int | None
     max_set_point_raw: int | None
     time_boost_seconds: int
-    setpoints_raw: dict[str, int]
-    errors: tuple[WattsDeviceError, ...]
+    setpoints_raw: Mapping[str, int]
+    errors: tuple[WattsDeviceError, ...] = ()
+    schedule: tuple[str, ...] | None = None
 
     @property
     def display_name(self) -> str:
-        """Return a stable display name."""
-        if self.name:
-            return self.name
-        if self.zone_name:
-            return self.zone_name
-        return self.id_device
+        """Return a stable display name (zone name first: device names are often generic)."""
+        return self.zone_name or self.name or self.id_device
 
     @property
     def current_mode(self) -> str:
         """Return mode option string from gv_mode code."""
-        mapped = MODE_CODE_TO_OPTION.get(self.gv_mode)
-        if mapped is not None:
-            return mapped
-        return f"{MODE_UNKNOWN}_{self.gv_mode}"
+        return mode_from_code(self.gv_mode)
+
+    @property
+    def is_off(self) -> bool:
+        """Return True when the device is switched off."""
+        return self.current_mode == MODE_OFF
+
+    @property
+    def is_program(self) -> bool:
+        """Return True when the device follows its weekly schedule."""
+        return self.current_mode in PROGRAM_MODES
+
+    @property
+    def is_boost(self) -> bool:
+        """Return True when boost is active (manual or within the schedule)."""
+        return self.current_mode in (MODE_BOOST, MODE_PROGRAM_BOOST)
 
     @property
     def heating_status(self) -> str:
@@ -180,6 +256,11 @@ class WattsDevice:
         return raw_to_celsius(self.temperature_air_raw)
 
     @property
+    def current_floor_temperature(self) -> float | None:
+        """Return floor temperature in Celsius (None when no floor sensor)."""
+        return raw_to_celsius(self.temperature_floor_raw)
+
+    @property
     def min_set_point(self) -> float | None:
         """Return minimum setpoint in Celsius."""
         return raw_to_celsius(self.min_set_point_raw)
@@ -189,44 +270,64 @@ class WattsDevice:
         """Return maximum setpoint in Celsius."""
         return raw_to_celsius(self.max_set_point_raw)
 
+    @property
+    def active_setpoint_key(self) -> str | None:
+        """Return the setpoint the current mode uses (None when off/unknown)."""
+        return SETPOINT_BY_MODE.get(self.current_mode)
+
+    @property
+    def target_temperature(self) -> float | None:
+        """Return the temperature the device is currently aiming for."""
+        key = self.active_setpoint_key
+        return self.get_setpoint(key) if key else None
+
     def get_setpoint(self, key: str) -> float | None:
-        """Return a setpoint in Celsius by raw key."""
-        raw = self.setpoints_raw.get(key)
-        return raw_to_celsius(raw)
+        """Return a setpoint in Celsius, on the 0.5 °C grid the thermostat uses."""
+        celsius = raw_to_celsius(self.setpoints_raw.get(key))
+        return None if celsius is None else round_to_step(celsius)
 
-    def get_setpoint_raw(self, key: str) -> str | None:
-        """Return raw setpoint value as string."""
-        raw = self.setpoints_raw.get(key)
-        if raw is None:
-            return None
-        return str(raw)
+    def schedule_now(self, now: datetime) -> tuple[str | None, ScheduleChange | None]:
+        """Return (active schedule period, next change) for local time `now`.
 
-    def base_query(self) -> dict[str, str]:
-        """Build a full query payload from current device state."""
-        query: dict[str, str] = {
-            "id_device": self.id_device,
-            "gv_mode": self.gv_mode,
-            "nv_mode": self.nv_mode,
-            BOOST_TIMER: str(self.time_boost_seconds),
-        }
+        Only meaningful while the device follows its schedule.
+        """
+        # The mode code is the device's live view; the schedule only predicts what comes next.
+        period = SCHEDULE_PERIOD_BY_MODE.get(self.current_mode)
+        if self.schedule is None:
+            return period, None
+        return period or schedule_period_at(self.schedule, now), next_schedule_change(self.schedule, now)
 
-        for setpoint_key in (*SETPOINT_KEYS, SETPOINT_MANUAL):
-            raw_value = self.get_setpoint_raw(setpoint_key)
-            if raw_value is not None:
-                query[setpoint_key] = raw_value
+    def schedule_temperature(self, period: str | None) -> float | None:
+        """Return the setpoint a schedule period uses."""
+        key = SETPOINT_BY_MODE.get(period) if period else None
+        return self.get_setpoint(key) if key else None
 
-        if SETPOINT_MANUAL not in query:
-            fallback_key = SETPOINT_BY_MODE.get(self.current_mode)
-            if fallback_key is not None:
-                fallback_value = self.get_setpoint_raw(fallback_key)
-                if fallback_value is not None:
-                    query[SETPOINT_MANUAL] = fallback_value
+    def raw_field(self, name: str) -> str | None:
+        """Return a raw API field as the string smarthome/read would send."""
+        if name == FIELD_GV_MODE:
+            return self.gv_mode
+        if name == FIELD_NV_MODE:
+            return self.nv_mode
+        if name == BOOST_TIMER:
+            return str(self.time_boost_seconds)
+        value = self.setpoints_raw.get(name)
+        return None if value is None else str(value)
 
-        return query
-
-    def with_errors(self, errors: tuple[WattsDeviceError, ...]) -> WattsDevice:
-        """Return a copy with updated errors."""
-        return replace(self, errors=errors)
+    def with_raw_fields(self, fields: Mapping[str, str]) -> WattsDevice:
+        """Return a copy with raw API fields applied (used for optimistic state)."""
+        changes: dict[str, Any] = {}
+        setpoints = dict(self.setpoints_raw)
+        for name, value in fields.items():
+            if name == FIELD_GV_MODE:
+                changes["gv_mode"] = value
+            elif name == FIELD_NV_MODE:
+                changes["nv_mode"] = value
+            elif name in (*SETPOINT_KEYS, SETPOINT_MANUAL):
+                parsed = _as_int(value)
+                if parsed is not None:
+                    setpoints[name] = parsed
+        changes["setpoints_raw"] = setpoints
+        return replace(self, **changes)
 
 
 @dataclass(frozen=True, slots=True)
@@ -235,34 +336,40 @@ class WattsSmarthome:
 
     smarthome_id: str
     label: str
-    address: str
-    latitude: str
-    longitude: str
     mac_address: str
-    general_mode: str
-    holiday_mode: str
     unit_mode: str
+    holiday_mode: str
     holiday_start: str
     holiday_end: str
-    jet_lag: int
-    users: tuple[WattsUserRef, ...]
-    modes: tuple[WattsModeInfo, ...]
     zones: tuple[WattsZone, ...]
     devices: tuple[WattsDevice, ...]
+    seconds_since_contact: int | None = None
+    devices_by_id: dict[str, WattsDevice] = field(init=False, repr=False, compare=False)
 
-    @property
-    def devices_by_id(self) -> dict[str, WattsDevice]:
-        """Return devices keyed by short id."""
-        return {device.id_device: device for device in self.devices}
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "devices_by_id", {device.id_device: device for device in self.devices})
 
-    def get_device(self, id_device: str) -> WattsDevice:
+    def get_device(self, id_device: str) -> WattsDevice | None:
         """Return a device by short device id."""
-        return self.devices_by_id[id_device]
+        return self.devices_by_id.get(id_device)
 
-    def with_error_map(self, error_map: dict[str, tuple[WattsDeviceError, ...]]) -> WattsSmarthome:
-        """Return copy with per-device errors merged in."""
-        updated_devices = tuple(device.with_errors(error_map.get(device.id_device, ())) for device in self.devices)
-        return replace(self, devices=updated_devices)
+    def holiday_active(self, now: datetime) -> bool:
+        """Return True when holiday mode is running (the app blocks edits then).
+
+        `now` must be a naive datetime in the central unit's local time.
+        """
+        if self.holiday_start in _UNSET_HOLIDAY_DATES or self.holiday_end in _UNSET_HOLIDAY_DATES:
+            return False
+        try:
+            start = datetime.strptime(self.holiday_start, _HOLIDAY_DATE_FORMAT)
+            end = datetime.strptime(self.holiday_end, _HOLIDAY_DATE_FORMAT)
+        except ValueError:
+            return False
+        return start <= now <= end
+
+    def with_devices(self, devices: tuple[WattsDevice, ...]) -> WattsSmarthome:
+        """Return copy with a new device tuple."""
+        return replace(self, devices=devices)
 
 
 @dataclass(frozen=True, slots=True)
@@ -271,36 +378,39 @@ class WattsState:
 
     user: WattsUserProfile
     smarthomes: tuple[WattsSmarthome, ...]
+    smarthomes_by_id: dict[str, WattsSmarthome] = field(init=False, repr=False, compare=False)
 
-    @property
-    def smarthomes_by_id(self) -> dict[str, WattsSmarthome]:
-        """Return smarthomes keyed by smarthome id."""
-        return {home.smarthome_id: home for home in self.smarthomes}
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "smarthomes_by_id", {home.smarthome_id: home for home in self.smarthomes})
 
-    def get_smarthome(self, smarthome_id: str) -> WattsSmarthome:
+    def get_smarthome(self, smarthome_id: str) -> WattsSmarthome | None:
         """Return smarthome by id."""
-        return self.smarthomes_by_id[smarthome_id]
+        return self.smarthomes_by_id.get(smarthome_id)
 
-    def get_device(self, smarthome_id: str, id_device: str) -> WattsDevice:
+    def get_device(self, smarthome_id: str, id_device: str) -> WattsDevice | None:
         """Return device by smarthome and short device id."""
-        return self.get_smarthome(smarthome_id).get_device(id_device)
+        home = self.get_smarthome(smarthome_id)
+        return home.get_device(id_device) if home else None
 
 
 @dataclass(frozen=True, slots=True)
 class WattsWriteRequest:
-    """Write request describing one device update."""
+    """One device command for query/push."""
 
     smarthome_id: str
     id_device: str
     query: dict[str, str]
 
 
-def parse_user_profile(payload: dict[str, Any]) -> WattsUserProfile:
+# --- Parsers -----------------------------------------------------------------------
+
+
+def parse_user_profile(payload: Mapping[str, Any]) -> WattsUserProfile:
     """Parse user/read response into domain model."""
     data = payload.get("data") or {}
 
     smarthomes: list[WattsSmarthomeSummary] = []
-    for raw in data.get("smarthomes", []):
+    for raw in data.get("smarthomes") or []:
         smarthome_id = _as_str(raw.get("smarthome_id"))
         if not smarthome_id:
             continue
@@ -308,13 +418,7 @@ def parse_user_profile(payload: dict[str, Any]) -> WattsUserProfile:
             WattsSmarthomeSummary(
                 smarthome_id=smarthome_id,
                 label=_as_str(raw.get("label")),
-                address=_as_str(raw.get("address_position")),
-                latitude=_as_str(raw.get("latitude")),
-                longitude=_as_str(raw.get("longitude")),
                 mac_address=_as_str(raw.get("mac_address")),
-                general_mode=_as_str(raw.get("general_mode")),
-                holiday_mode=_as_str(raw.get("holiday_mode")),
-                unit_mode=_as_str(raw.get("param_c_f")),
             )
         )
 
@@ -322,159 +426,117 @@ def parse_user_profile(payload: dict[str, Any]) -> WattsUserProfile:
         user_id=_as_str(data.get("user_id")),
         email=_as_str(data.get("email")),
         lang_code=_as_str(data.get("lang_code")),
-        cgu_id=_as_str(data.get("cgu_id")),
-        optin_stats=_as_str(data.get("optin_stats")),
         smarthomes=tuple(smarthomes),
     )
 
 
-def parse_smarthome(payload: dict[str, Any], *, smarthome_id: str = "") -> WattsSmarthome:
+def _parse_device(raw_device: Mapping[str, Any], smarthome_id: str, zone: WattsZone | None) -> WattsDevice:
+    setpoints_raw: dict[str, int] = {}
+    for setpoint_key in (*SETPOINT_KEYS, SETPOINT_MANUAL):
+        raw_value = _as_int(raw_device.get(setpoint_key))
+        if raw_value is not None:
+            setpoints_raw[setpoint_key] = raw_value
+
+    return WattsDevice(
+        smarthome_id=smarthome_id,
+        id_device=_as_str(raw_device.get(FIELD_ID_DEVICE)),
+        name=_as_str(raw_device.get("nom_appareil")),
+        zone_id=zone.num_zone if zone else _as_str(raw_device.get("num_zone")),
+        zone_name=zone.zone_label if zone else "",
+        bundle_id=_as_str(raw_device.get("bundle_id")),
+        gv_mode=_as_str(raw_device.get(FIELD_GV_MODE)),
+        nv_mode=_as_str(raw_device.get(FIELD_NV_MODE)),
+        temperature_air_raw=_as_int(raw_device.get("temperature_air")),
+        temperature_floor_raw=_as_int(raw_device.get("temperature_sol")),
+        heating_up=_as_str(raw_device.get("heating_up")) == "1",
+        error_code=_as_int(raw_device.get("error_code")) or 0,
+        min_set_point_raw=_as_int(raw_device.get("min_set_point")),
+        max_set_point_raw=_as_int(raw_device.get("max_set_point")),
+        time_boost_seconds=_as_int(raw_device.get(BOOST_TIMER)) or 0,
+        setpoints_raw=setpoints_raw,
+        schedule=decode_schedule(_as_str(raw_device.get("programme"))),
+    )
+
+
+def parse_smarthome(payload: Mapping[str, Any], *, smarthome_id: str = "") -> WattsSmarthome:
     """Parse smarthome/read response into domain model."""
     data = payload.get("data") or {}
     resolved_smarthome_id = _as_str(data.get("smarthome_id")) or smarthome_id
 
     zones: list[WattsZone] = []
     zone_lookup: dict[str, WattsZone] = {}
-    for zone_raw in data.get("zones", []):
-        device_ids: list[str] = []
-        for zone_device in zone_raw.get("devices", []):
-            zone_device_id = _as_str(zone_device.get("id_device"))
-            if zone_device_id:
-                device_ids.append(zone_device_id)
-
+    for zone_raw in data.get("zones") or []:
+        device_ids = tuple(
+            device_id
+            for zone_device in zone_raw.get("devices") or []
+            if isinstance(zone_device, dict) and (device_id := _as_str(zone_device.get(FIELD_ID_DEVICE)))
+        )
         zone = WattsZone(
             num_zone=_as_str(zone_raw.get("num_zone")),
             zone_label=_as_str(zone_raw.get("zone_label")),
             zone_type_label=_as_str(zone_raw.get("label_zone_type")),
-            zone_type_icon=_as_str(zone_raw.get("picto_zone_type")),
-            zone_image_id=_as_str(zone_raw.get("zone_img_id")),
-            device_ids=tuple(device_ids),
+            device_ids=device_ids,
         )
         zones.append(zone)
-        for zone_device_id in device_ids:
-            zone_lookup[zone_device_id] = zone
+        for device_id in device_ids:
+            zone_lookup[device_id] = zone
 
     devices_by_id: dict[str, WattsDevice] = {}
+    raw_devices = [d for d in data.get("devices") or [] if isinstance(d, dict)]
+    for zone_raw in data.get("zones") or []:
+        raw_devices.extend(d for d in zone_raw.get("devices") or [] if isinstance(d, dict))
 
-    def add_raw_device(raw_device: dict[str, Any]) -> None:
-        id_device = _as_str(raw_device.get("id_device"))
-        if not id_device or id_device in devices_by_id:
-            return
-
-        zone = zone_lookup.get(id_device)
-        zone_name = zone.zone_label if zone else ""
-
-        setpoints_raw: dict[str, int] = {}
-        for setpoint_key in (*SETPOINT_KEYS, SETPOINT_MANUAL):
-            raw_value = _as_int(raw_device.get(setpoint_key))
-            if raw_value is not None:
-                setpoints_raw[setpoint_key] = raw_value
-
-        devices_by_id[id_device] = WattsDevice(
-            smarthome_id=resolved_smarthome_id,
-            id=_as_str(raw_device.get("id")),
-            id_device=id_device,
-            name=_as_str(raw_device.get("nom_appareil")),
-            zone_id=zone.num_zone if zone else _as_str(raw_device.get("num_zone")),
-            zone_name=zone_name,
-            bundle_id=_as_str(raw_device.get("bundle_id")),
-            gv_mode=_as_str(raw_device.get("gv_mode")),
-            nv_mode=_as_str(raw_device.get("nv_mode")),
-            temperature_air_raw=_as_int(raw_device.get("temperature_air")),
-            temperature_floor_raw=_as_int(raw_device.get("temperature_sol")),
-            heating_up=_as_str(raw_device.get("heating_up")) == "1",
-            error_code=_as_int(raw_device.get("error_code")) or 0,
-            min_set_point_raw=_as_int(raw_device.get("min_set_point")),
-            max_set_point_raw=_as_int(raw_device.get("max_set_point")),
-            time_boost_seconds=_as_int(raw_device.get(BOOST_TIMER)) or 0,
-            setpoints_raw=setpoints_raw,
-            errors=(),
-        )
-
-    for raw_device in data.get("devices", []):
-        if isinstance(raw_device, dict):
-            add_raw_device(raw_device)
-
-    for zone_raw in data.get("zones", []):
-        for zone_device in zone_raw.get("devices", []):
-            if isinstance(zone_device, dict):
-                add_raw_device(zone_device)
-
-    users = tuple(
-        WattsUserRef(
-            user_id=_as_str(raw_user.get("user_id")),
-            user_email=_as_str(raw_user.get("user_email")),
-        )
-        for raw_user in data.get("users", [])
-    )
-
-    modes = tuple(
-        WattsModeInfo(
-            smarthome_id=_as_str(raw_mode.get("smarthome_id")),
-            mode_type_id=_as_str(raw_mode.get("smarthome_mode_type_id")),
-            bundle_id=_as_str(raw_mode.get("bundle_id")),
-            nvgv_mode_id=_as_str(raw_mode.get("nvgv_mode_id")),
-        )
-        for raw_mode in data.get("modes", [])
-    )
+    for raw_device in raw_devices:
+        id_device = _as_str(raw_device.get(FIELD_ID_DEVICE))
+        if id_device and id_device not in devices_by_id:
+            devices_by_id[id_device] = _parse_device(raw_device, resolved_smarthome_id, zone_lookup.get(id_device))
 
     return WattsSmarthome(
         smarthome_id=resolved_smarthome_id,
         label=_as_str(data.get("label")),
-        address=_as_str(data.get("address_position")),
-        latitude=_as_str(data.get("latitude")),
-        longitude=_as_str(data.get("longitude")),
         mac_address=_as_str(data.get("mac_address")),
-        general_mode=_as_str(data.get("general_mode")),
-        holiday_mode=_as_str(data.get("holiday_mode")),
         unit_mode=_as_str(data.get("param_c_f")),
+        holiday_mode=_as_str(data.get("holiday_mode")),
         holiday_start=_as_str(data.get("holiday_start")),
         holiday_end=_as_str(data.get("holiday_end")),
-        jet_lag=_as_int(data.get("jet_lag")) or 0,
-        users=users,
-        modes=modes,
         zones=tuple(zones),
         devices=tuple(devices_by_id.values()),
     )
 
 
-def parse_smarthome_errors(payload: dict[str, Any]) -> dict[str, tuple[WattsDeviceError, ...]]:
+def parse_smarthome_errors(payload: Mapping[str, Any]) -> dict[str, tuple[WattsDeviceError, ...]]:
     """Parse smarthome/get_errors response into per-device error map."""
-    results = ((payload.get("data") or {}).get("results") or {})
+    results = (payload.get("data") or {}).get("results") or {}
     by_device = results.get("by_device") or {}
 
     parsed: dict[str, tuple[WattsDeviceError, ...]] = {}
-
     for smarthome_data in by_device.values():
         if not isinstance(smarthome_data, dict):
             continue
         for raw_device in smarthome_data.values():
             if not isinstance(raw_device, dict):
                 continue
-
-            id_device = _as_str(raw_device.get("id_device"))
+            id_device = _as_str(raw_device.get(FIELD_ID_DEVICE))
             if not id_device:
                 continue
-
-            errors = tuple(
+            parsed[id_device] = tuple(
                 WattsDeviceError(
                     code=_as_str(raw_error.get("code")),
                     title=_as_str(raw_error.get("title")),
                     message=_as_str(raw_error.get("error")),
                 )
-                for raw_error in raw_device.get("errors", [])
+                for raw_error in raw_device.get("errors") or []
                 if isinstance(raw_error, dict)
             )
-            parsed[id_device] = errors
-
     return parsed
 
 
 def parse_state(
     *,
-    user_payload: dict[str, Any],
-    smarthome_payloads: dict[str, dict[str, Any]],
-    smarthome_error_payloads: dict[str, dict[str, Any]],
+    user_payload: Mapping[str, Any],
+    smarthome_payloads: Mapping[str, Mapping[str, Any]],
+    smarthome_error_payloads: Mapping[str, Mapping[str, Any]],
+    connection_seconds: Mapping[str, int | None] | None = None,
 ) -> WattsState:
     """Build a WattsState from user + smarthome payloads."""
     user = parse_user_profile(user_payload)
@@ -485,39 +547,63 @@ def parse_state(
         if smarthome_payload is None:
             continue
 
-        smarthome = parse_smarthome(smarthome_payload, smarthome_id=summary.smarthome_id)
+        home = parse_smarthome(smarthome_payload, smarthome_id=summary.smarthome_id)
         error_payload = smarthome_error_payloads.get(summary.smarthome_id)
-        if error_payload is not None:
-            smarthome = smarthome.with_error_map(parse_smarthome_errors(error_payload))
-        homes.append(smarthome)
+        if error_payload:
+            error_map = parse_smarthome_errors(error_payload)
+            home = home.with_devices(
+                tuple(replace(device, errors=error_map.get(device.id_device, ())) for device in home.devices)
+            )
+        if connection_seconds is not None:
+            home = replace(home, seconds_since_contact=connection_seconds.get(summary.smarthome_id))
+        homes.append(home)
 
     return WattsState(user=user, smarthomes=tuple(homes))
+
+
+# --- Command builders ----------------------------------------------------------------
+# These mirror the web app's `saveChoice` / `goBoostTimer` queries: only the
+# fields that change are sent, never a full copy of the device state.
+
+
+def clamp_boost_seconds(seconds: int) -> int:
+    """Clamp a boost duration to what the app accepts."""
+    return max(MIN_BOOST_SECONDS, min(MAX_BOOST_SECONDS, int(seconds)))
 
 
 def build_mode_write_request(
     *,
     device: WattsDevice,
     selected_mode: str,
+    boost_seconds: int | None = None,
 ) -> WattsWriteRequest:
-    """Build a query/push payload for mode updates."""
-    mode_code = MODE_OPTION_TO_CODE.get(selected_mode)
-    if mode_code is None:
+    """Build a query/push payload that switches the device to another mode."""
+    if selected_mode not in SELECTABLE_MODES:
         raise ValueError(f"Unsupported mode option: {selected_mode}")
+    mode_code = MODE_OPTION_TO_CODE[selected_mode]
 
-    query = device.base_query()
-    query["gv_mode"] = mode_code
-    query["nv_mode"] = mode_code
+    query: dict[str, str] = {FIELD_ID_DEVICE: device.id_device}
+    if selected_mode == MODE_BOOST:
+        seconds = boost_seconds or device.time_boost_seconds or DEFAULT_BOOST_SECONDS
+        query[BOOST_TIMER] = str(clamp_boost_seconds(seconds))
+    else:
+        query[BOOST_TIMER] = "0"
 
-    setpoint_key = SETPOINT_BY_MODE.get(selected_mode)
-    if setpoint_key is not None:
-        mode_setpoint_raw = device.get_setpoint_raw(setpoint_key)
-        if mode_setpoint_raw is not None:
-            query[setpoint_key] = mode_setpoint_raw
-            query[SETPOINT_MANUAL] = mode_setpoint_raw
+    if selected_mode == MODE_OFF:
+        query[SETPOINT_MANUAL] = "0"
+    elif selected_mode == MODE_PROGRAM_ON:
+        comfort = device.setpoints_raw.get(SETPOINT_COMFORT)
+        if comfort is not None:
+            query[SETPOINT_MANUAL] = str(comfort)
+    else:
+        setpoint_key = SETPOINT_BY_MODE[selected_mode]
+        raw_value = device.setpoints_raw.get(setpoint_key)
+        if raw_value is not None:
+            query[setpoint_key] = str(raw_value)
+            query[SETPOINT_MANUAL] = str(raw_value)
 
-    if selected_mode == MODE_BOOST and BOOST_TIMER not in query:
-        query[BOOST_TIMER] = "3600"
-
+    query[FIELD_GV_MODE] = mode_code
+    query[FIELD_NV_MODE] = mode_code
     return WattsWriteRequest(smarthome_id=device.smarthome_id, id_device=device.id_device, query=query)
 
 
@@ -527,69 +613,26 @@ def build_setpoint_write_request(
     setpoint_key: str,
     value_celsius: float,
 ) -> WattsWriteRequest:
-    """Build a query/push payload for one setpoint update."""
-    if setpoint_key not in (*SETPOINT_KEYS,):
+    """Build a query/push payload that changes one setpoint and keeps the mode."""
+    if setpoint_key not in (*SETPOINT_KEYS, SETPOINT_MANUAL):
         raise ValueError(f"Unsupported setpoint key: {setpoint_key}")
 
-    query = device.base_query()
-    raw_value = str(celsius_to_raw(value_celsius))
-    query[setpoint_key] = raw_value
-
-    active_setpoint_key = SETPOINT_BY_MODE.get(device.current_mode)
-    if active_setpoint_key == setpoint_key:
+    raw_value = str(celsius_to_raw(round_to_step(value_celsius)))
+    query: dict[str, str] = {FIELD_ID_DEVICE: device.id_device, setpoint_key: raw_value}
+    if device.active_setpoint_key == setpoint_key:
         query[SETPOINT_MANUAL] = raw_value
-
+    query[FIELD_GV_MODE] = device.gv_mode
+    query[FIELD_NV_MODE] = device.nv_mode or device.gv_mode
     return WattsWriteRequest(smarthome_id=device.smarthome_id, id_device=device.id_device, query=query)
 
 
-def build_boost_timer_write_request(
-    *,
-    device: WattsDevice,
-    value_seconds: int,
-) -> WattsWriteRequest:
-    """Build a query/push payload for boost timer update."""
-    query = device.base_query()
-    query[BOOST_TIMER] = str(max(0, value_seconds))
-
-    return WattsWriteRequest(smarthome_id=device.smarthome_id, id_device=device.id_device, query=query)
+def build_boost_write_request(*, device: WattsDevice, boost_seconds: int) -> WattsWriteRequest:
+    """Build a query/push payload that (re)starts boost for a duration."""
+    return build_mode_write_request(device=device, selected_mode=MODE_BOOST, boost_seconds=boost_seconds)
 
 
-def current_mode_label(device: WattsDevice) -> str:
-    """Compatibility helper used by sensor/select entities."""
-    return device.current_mode
-
-
-def get_current_mode_code(mode_option: str) -> str | None:
-    """Return API mode code for a mode option."""
-    return MODE_OPTION_TO_CODE.get(mode_option)
-
-
-def mode_from_code(mode_code: str) -> str:
-    """Return a stable mode option string from an API code."""
-    mapped = MODE_CODE_TO_OPTION.get(mode_code)
-    if mapped is not None:
-        return mapped
-    return f"{MODE_UNKNOWN}_{mode_code}"
-
-
-def default_manual_setpoint_key(mode_option: str) -> str:
-    """Return the setpoint key associated with a mode."""
-    return SETPOINT_BY_MODE.get(mode_option, SETPOINT_COMFORT)
-
-
-def all_setpoint_keys() -> tuple[str, ...]:
-    """Return all available setpoint keys."""
-    return SETPOINT_KEYS
-
-
-def setpoint_name(setpoint_key: str) -> str:
-    """Return a human name for a setpoint key."""
-    if setpoint_key == SETPOINT_COMFORT:
-        return "comfort"
-    if setpoint_key == SETPOINT_ECO:
-        return "eco"
-    if setpoint_key == SETPOINT_ANTI_FROST:
-        return "anti_frost"
-    if setpoint_key == SETPOINT_BOOST:
-        return "boost"
-    return setpoint_key
+def merge_queries(base: Mapping[str, str], update: Mapping[str, str]) -> dict[str, str]:
+    """Merge two queued queries for the same device; later fields win."""
+    merged = dict(base)
+    merged.update(update)
+    return merged

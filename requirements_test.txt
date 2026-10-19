@@ -1,0 +1,4 @@
+# Test dependencies (Python 3.12+). Run: pip install -r requirements_test.txt && pytest
+pytest-homeassistant-custom-component>=0.13.205
+# Newer pycares starts a background thread that the HA test harness reports as leaked.
+pycares==4.4.0

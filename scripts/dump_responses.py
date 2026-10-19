@@ -6,7 +6,8 @@ The script:
  - logs in
  - executes every `method + path` present in `watts-openapi.yaml`
  - runs per-smarthome calls for every discovered smarthome
- - runs `query/push` for every discovered device in every smarthome
+ - runs `query/push` for every discovered device (only with WATTS_DUMP_PUSH=1,
+   because it sends a real write to each device)
  - saves responses (and errors) into `.responses/` with one file per call
 """
 
@@ -198,11 +199,7 @@ async def safe_call(
 
 async def async_get_account(client: WattsApiClient) -> dict[str, Any]:
     """Call GET /realms/watts/account against auth server."""
-    await client._ensure_access_token()
-    if client._access_token is None:
-        raise WattsApiError("No access token available")
-
-    headers = {"Authorization": f"Bearer {client._access_token}"}
+    headers = {"Authorization": f"Bearer {await client._ensure_access_token()}"}
     status, payload = await client._async_raw_request(
         "GET",
         f"{AUTH_BASE_URL}/realms/watts/account",
@@ -210,9 +207,7 @@ async def async_get_account(client: WattsApiClient) -> dict[str, Any]:
     )
     if status in (401, 403):
         await client._force_reauthenticate()
-        if client._access_token is None:
-            raise WattsApiError("No access token available after re-auth")
-        headers = {"Authorization": f"Bearer {client._access_token}"}
+        headers = {"Authorization": f"Bearer {await client._ensure_access_token()}"}
         status, payload = await client._async_raw_request(
             "GET",
             f"{AUTH_BASE_URL}/realms/watts/account",
@@ -273,7 +268,7 @@ async def main() -> int:
         await safe_call(
             label="user_get_lang",
             operation="POST /api/v0.1/human/user/get_lang/",
-            coro=client._request("POST", "/api/v0.1/human/user/get_lang/", data={"lang": DEFAULT_LANG}),
+            coro=client._request("/api/v0.1/human/user/get_lang/", data={"lang": DEFAULT_LANG}),
             attempted_ops=attempted_ops,
             successful_ops=successful_ops,
         )
@@ -281,7 +276,6 @@ async def main() -> int:
             label="sandbox_get_current_timestamp",
             operation="POST /api/v0.1/human/sandbox/get_current_timestamp/",
             coro=client._request(
-                "POST",
                 "/api/v0.1/human/sandbox/get_current_timestamp/",
                 data={"lang": DEFAULT_LANG, "0": "0"},
             ),
@@ -292,7 +286,6 @@ async def main() -> int:
             label="sandbox_get_db_version",
             operation="POST /api/v0.1/human/sandbox/get_db_version/",
             coro=client._request(
-                "POST",
                 "/api/v0.1/human/sandbox/get_db_version/",
                 data={"lang": DEFAULT_LANG, "0": "0"},
             ),
@@ -324,31 +317,41 @@ async def main() -> int:
             await safe_call(
                 label=f"smarthome_{safe_sid}_check_last_connexion",
                 operation="POST /api/v0.1/human/sandbox/check_last_connexion/",
-                coro=client.async_check_last_connection(smarthome_id),
+                coro=client._request(
+                    "/api/v0.1/human/sandbox/check_last_connexion/",
+                    data={"token": "true", "smarthome_id": smarthome_id, "lang": DEFAULT_LANG},
+                    allow_api_codes={"2"},
+                ),
                 attempted_ops=attempted_ops,
                 successful_ops=successful_ops,
             )
             await safe_call(
                 label=f"smarthome_{safe_sid}_time_offset",
                 operation="POST /api/v0.1/human/smarthome/time_offset/",
-                coro=client.async_get_time_offset(smarthome_id),
+                coro=client._request(
+                    "/api/v0.1/human/smarthome/time_offset/",
+                    data={"smarthome_id": smarthome_id, "lang": DEFAULT_LANG},
+                ),
                 attempted_ops=attempted_ops,
                 successful_ops=successful_ops,
             )
             await safe_call(
                 label=f"smarthome_{safe_sid}_query_check_failure",
                 operation="POST /api/v0.1/human/query/check_failure/",
-                coro=client.async_check_query_failure(smarthome_id),
+                coro=client._request(
+                    "/api/v0.1/human/query/check_failure/",
+                    data={"token": "true", "smarthome_id": smarthome_id, "lang": DEFAULT_LANG},
+                    allow_api_codes={"2"},
+                ),
                 attempted_ops=attempted_ops,
                 successful_ops=successful_ops,
             )
 
-            devices = (
-                extract_devices(smarthome_payload)
-                if isinstance(smarthome_payload, Mapping)
-                else {}
-            )
+            devices = extract_devices(smarthome_payload) if isinstance(smarthome_payload, Mapping) else {}
             print(f"  Devices: {sorted(devices)}")
+            if os.environ.get("WATTS_DUMP_PUSH") != "1":
+                print("  Skipping query/push (set WATTS_DUMP_PUSH=1 to send no-op writes)")
+                continue
             for device_id, device in sorted(devices.items()):
                 safe_did = slug(device_id)
                 query = build_noop_query(device_id, device)

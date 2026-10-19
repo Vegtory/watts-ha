@@ -1,0 +1,27 @@
+{
+  "code": {
+    "code": "1",
+    "key": "OK",
+    "value": "OK"
+  },
+  "data": {
+    "email": "user@example.com",
+    "user_id": "42",
+    "cgu_id": "1",
+    "lang_code": "en_GB",
+    "optin_stats": "0",
+    "smarthomes": [
+      {
+        "label": "Test home",
+        "latitude": "0",
+        "longitude": "0",
+        "smarthome_id": "SH_TEST_1",
+        "mac_address": "00:11:22:33:44:55",
+        "general_mode": "0",
+        "holiday_mode": "0",
+        "param_c_f": "c",
+        "address_position": ""
+      }
+    ]
+  }
+}

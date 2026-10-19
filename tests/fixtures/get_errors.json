@@ -1,0 +1,26 @@
+{
+  "code": {
+    "code": "1",
+    "key": "OK",
+    "value": "OK"
+  },
+  "data": {
+    "results": {
+      "by_device": {
+        "SH_TEST_1": {
+          "C001-000": {
+            "errors": [
+              {
+                "code": "DEF_BAT_TH",
+                "title": "Battery failure",
+                "error": "Battery failure"
+              }
+            ],
+            "id_device": "C001-000"
+          }
+        }
+      },
+      "leaks": []
+    }
+  }
+}
