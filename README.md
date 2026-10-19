@@ -160,6 +160,13 @@ If the password changes, Home Assistant asks you to sign in again. Use **Reconfi
 
 **Settings → Devices & Services → Watts SmartHome → ⋮ → Delete**, then remove it in HACS.
 
+## Releasing
+
+Bump `version` in `custom_components/watts_smarthome/manifest.json` and push to `main`. The
+[Release workflow](.github/workflows/release.yml) runs the tests, tags the commit `vX.Y.Z` and creates the
+GitHub release that HACS offers as an update. Release notes list the commits since the previous release;
+edit them on GitHub if you like. It can also be started by hand under **Actions → Release → Run workflow**.
+
 ## Development
 
 ```sh

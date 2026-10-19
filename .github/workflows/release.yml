@@ -1,0 +1,90 @@
+# Creates a GitHub release (which HACS uses for updates) whenever the version in
+# manifest.json changes on main. Bump "version" in manifest.json and push; that's it.
+name: Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - custom_components/watts_smarthome/manifest.json
+      - .github/workflows/release.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history and tags, for the release notes
+
+      - name: Read version from manifest
+        id: version
+        run: |
+          version=$(jq -r .version custom_components/watts_smarthome/manifest.json)
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::manifest.json version '$version' is not X.Y.Z"
+            exit 1
+          fi
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+      - name: Check whether this version is already released
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; nothing to do."
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-python@v5
+        if: steps.check.outputs.exists == 'false'
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements_test.txt
+
+      - name: Run tests
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          pip install -r requirements_test.txt
+          pytest -q
+
+      - name: Create release
+        if: steps.check.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          # Release an existing tag as-is; otherwise tag this commit.
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            target=$(git rev-list -n 1 "$TAG")
+          else
+            target=$GITHUB_SHA
+          fi
+
+          previous=$(git describe --tags --abbrev=0 --match 'v*' "$target^" 2>/dev/null || true)
+          {
+            echo "## Changes"
+            echo
+            if [ -n "$previous" ]; then
+              git log --no-merges --pretty='- %s' "$previous..$target"
+              echo
+              echo "**Full changelog**: https://github.com/$GITHUB_REPOSITORY/compare/$previous...$TAG"
+            else
+              git log --no-merges --pretty='- %s' "$target"
+            fi
+          } > notes.md
+
+          gh release create "$TAG" --target "$target" --title "$TAG" --notes-file notes.md

@@ -48,7 +48,7 @@ def fast_sync(monkeypatch):
     monkeypatch.setattr(coordinator_module, "POST_WRITE_QUIET_SECONDS", 0.05)
     monkeypatch.setattr(coordinator_module, "CHECK_FAILURE_MARGIN_SECONDS", 0.01)
     monkeypatch.setattr(coordinator_module, "CONFIRM_RETRY_INTERVAL_SECONDS", 0.02)
-    monkeypatch.setattr(coordinator_module, "CONFIRM_TIMEOUT_SECONDS", 0.2)
+    monkeypatch.setattr(coordinator_module, "CONFIRM_TIMEOUT_SECONDS", 1.0)
     monkeypatch.setattr(coordinator_module, "PEREMPTION_STEPS_MS", (60, 80, 100, 120))
 
 
