@@ -9,5 +9,5 @@
   "issue_tracker": "https://github.com/Vegtory/watts-ha/issues",
   "loggers": ["custom_components.watts_smarthome"],
   "requirements": [],
-  "version": "0.1.0"
+  "version": "0.0.2"
 }
